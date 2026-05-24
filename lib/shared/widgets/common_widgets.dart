@@ -35,59 +35,62 @@ class ErpCard extends StatelessWidget {
       child: child,
     );
 
-    return Container(
-      decoration: BoxDecoration(
-        color: cream ? D.bgCream : D.bgSurface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border(
-          top: goldRule
-              ? const BorderSide(color: D.gold400, width: 2)
-              : const BorderSide(color: D.borderDefault),
-          left: const BorderSide(color: D.borderDefault),
-          right: const BorderSide(color: D.borderDefault),
-          bottom: const BorderSide(color: D.borderDefault),
-        ),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x060A1A11),
-            offset: Offset(0, 1),
-            blurRadius: 2,
-          ),
-          BoxShadow(
-            color: Color(0x040A1A11),
-            offset: Offset(0, 1),
-            blurRadius: 1,
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          if (goldCorner) ...[
-            // Top-left L corner
-            Positioned(
-              top: 0,
-              left: 0,
-              child: Container(width: 28, height: 1, color: D.gold400),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: cream ? D.bgCream : D.bgSurface,
+          border: Border.all(color: D.borderDefault), // uniform border
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x060A1A11),
+              offset: Offset(0, 1),
+              blurRadius: 2,
             ),
-            Positioned(
-              top: 0,
-              left: 0,
-              child: Container(width: 1, height: 28, color: D.gold400),
+            BoxShadow(
+              color: Color(0x040A1A11),
+              offset: Offset(0, 1),
+              blurRadius: 1,
             ),
           ],
-          onTap != null
-              ? Material(
-                  color: Colors.transparent,
+        ),
+        child: Stack(
+          children: [
+            // Gold rule – drawn as a thin overlay, clipped to the rounded corners
+            if (goldRule)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: Container(height: 2, color: D.gold400),
+              ),
+            if (goldCorner) ...[
+              Positioned(
+                top: 0,
+                left: 0,
+                child: Container(width: 28, height: 1, color: D.gold400),
+              ),
+              Positioned(
+                top: 0,
+                left: 0,
+                child: Container(width: 1, height: 28, color: D.gold400),
+              ),
+            ],
+            if (onTap != null)
+              Material(
+                color: Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                child: InkWell(
                   borderRadius: BorderRadius.circular(8),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: onTap,
-                    hoverColor: const Color(0x06C49A4A),
-                    child: content,
-                  ),
-                )
-              : content,
-        ],
+                  onTap: onTap,
+                  hoverColor: const Color(0x06C49A4A),
+                  child: content,
+                ),
+              )
+            else
+              content,
+          ],
+        ),
       ),
     );
   }
@@ -132,7 +135,7 @@ class StatCard extends StatelessWidget {
             label.toUpperCase(),
             style: const TextStyle(
               fontFamily: 'Inter',
-              fontSize: 10,
+              fontSize: 11,
               fontWeight: FontWeight.w700,
               color: D.gold500,
               letterSpacing: 0.18,
@@ -732,12 +735,14 @@ class _KbdWidget extends StatelessWidget {
     decoration: BoxDecoration(
       color: D.bgSurface,
       borderRadius: BorderRadius.circular(3),
-      border: Border(
-        top: const BorderSide(color: D.borderDefault),
-        left: const BorderSide(color: D.borderDefault),
-        right: const BorderSide(color: D.borderDefault),
-        bottom: const BorderSide(color: D.neutral300, width: 2),
-      ),
+      border: Border.all(color: D.borderDefault, width: 1), // uniform border
+      boxShadow: const [
+        BoxShadow(
+          color: D.neutral300, // replaces the darker bottom border
+          offset: Offset(0, 1),
+          blurRadius: 0,
+        ),
+      ],
     ),
     child: Text(
       label,

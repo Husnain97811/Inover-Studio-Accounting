@@ -10,9 +10,6 @@ import '../../../core/constants/views.dart';
 import '../../../core/database/app_database.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/error_handler.dart';
-import '../../../core/utils/formatters.dart';
-import '../../../shared/providers/app_providers.dart';
-import '../../../shared/widgets/common_widgets.dart';
 import '../widgets/payment_dialog.dart';
 import '../widgets/product_search_field.dart';
 

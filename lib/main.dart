@@ -10,6 +10,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sizer/sizer.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -56,13 +57,17 @@ class IsAccountingApp extends ConsumerWidget {
     final locale = ref.watch(localeProvider);
     final router = ref.watch(appRouterProvider);
 
-    return MaterialApp.router(
-      title: AppConstants.appName,
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.build(theme),
-      locale: Locale(locale.code),
-      supportedLocales: const [Locale('en'), Locale('ur')],
-      routerConfig: router,
+    return Sizer(
+      builder: (p0, p1, p2) {
+        return MaterialApp.router(
+          title: AppConstants.appName,
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.build(theme),
+          locale: Locale(locale.code),
+          supportedLocales: const [Locale('en'), Locale('ur')],
+          routerConfig: router,
+        );
+      },
     );
   }
 }

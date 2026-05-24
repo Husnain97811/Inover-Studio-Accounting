@@ -2,13 +2,10 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:sizer/sizer.dart';
 
 import '../../../core/constants/views.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/utils/formatters.dart';
-import '../../../shared/providers/app_providers.dart';
-import '../../../shared/widgets/common_widgets.dart';
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -31,31 +28,31 @@ class DashboardScreen extends ConsumerWidget {
               actions: [
                 OutlinedButton.icon(
                   onPressed: () {},
-                  icon: const Icon(Icons.download_rounded, size: 15),
-                  label: const Text('Export'),
+                  icon: Icon(Icons.download_rounded, size: 15.sp),
+                  label: Text('Export', style: TextStyle(fontSize: 11.sp)),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: 1.w),
                 ElevatedButton.icon(
                   onPressed: () => context.go('/pos'),
-                  icon: const Icon(Icons.point_of_sale_rounded, size: 15),
+                  icon: Icon(Icons.point_of_sale_rounded, size: 15.sp),
                   label: Row(
                     children: [
-                      Text('Open POS'),
-                      const SizedBox(width: 8),
+                      Text('Open POS', style: TextStyle(fontSize: 11.sp)),
+                      SizedBox(width: 1.w),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 1,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 0.8.w,
+                          vertical: 0.2.h,
                         ),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(3),
+                          borderRadius: BorderRadius.circular(0.4.h),
                         ),
-                        child: const Text(
+                        child: Text(
                           'F1',
                           style: TextStyle(
                             fontFamily: 'JetBrains Mono',
-                            fontSize: 10,
+                            fontSize: 10.sp,
                           ),
                         ),
                       ),
@@ -66,18 +63,18 @@ class DashboardScreen extends ConsumerWidget {
             ),
 
             Padding(
-              padding: const EdgeInsets.fromLTRB(40, 32, 40, 0),
+              padding: EdgeInsets.fromLTRB(5.w, 4.h, 5.w, 0),
               child: stats.when(
-                loading: () => const Center(
+                loading: () => Center(
                   child: Padding(
-                    padding: EdgeInsets.all(48),
+                    padding: EdgeInsets.all(6.h),
                     child: CircularProgressIndicator(color: D.brand500),
                   ),
                 ),
                 error: (e, _) => Center(
                   child: Padding(
-                    padding: const EdgeInsets.all(48),
-                    child: Text('Error: $e'),
+                    padding: EdgeInsets.all(6.h),
+                    child: Text('Error: $e', style: TextStyle(fontSize: 12.sp)),
                   ),
                 ),
                 data: (s) => _DashBody(stats: s, bizType: bizType),
@@ -108,8 +105,8 @@ class _DashBody extends StatelessWidget {
               crossAxisCount: cols,
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
+              crossAxisSpacing: 1.5.w,
+              mainAxisSpacing: 1.5.h,
               childAspectRatio: c.maxWidth > 900 ? 1.65 : 1.5,
               children: [
                 StatCard(
@@ -124,7 +121,7 @@ class _DashBody extends StatelessWidget {
                   value: stats.todayCount.toString(),
                   sub: '${bizType.saleLabel}s today',
                   delta: "+${stats.todayCount}",
-                  deltaUp: true,
+                  deltaUp: false,
                 ),
                 StatCard(
                   label: "Pending FBR",
@@ -148,7 +145,7 @@ class _DashBody extends StatelessWidget {
           },
         ),
 
-        const SizedBox(height: 16),
+        SizedBox(height: 2.h),
 
         // Chart + Sync panel
         LayoutBuilder(
@@ -158,7 +155,7 @@ class _DashBody extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(flex: 3, child: _HourlyChart()),
-                  const SizedBox(width: 16),
+                  SizedBox(width: 2.w),
                   Expanded(flex: 2, child: _SyncPanel()),
                 ],
               );
@@ -166,18 +163,18 @@ class _DashBody extends StatelessWidget {
             return Column(
               children: [
                 _HourlyChart(),
-                const SizedBox(height: 16),
+                SizedBox(height: 2.h),
                 _SyncPanel(),
               ],
             );
           },
         ),
 
-        const SizedBox(height: 16),
+        SizedBox(height: 2.h),
 
         // Recent invoices
         _RecentInvoices(invoices: stats.recentInvoices),
-        const SizedBox(height: 48),
+        SizedBox(height: 6.h),
       ],
     );
   }
@@ -191,7 +188,7 @@ class _MiniSparkLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final pts = [20.0, 28, 22, 36, 40, 38, 52, 48, 60, 64, 72, 80, 86];
     return SizedBox(
-      height: 36,
+      height: 4.5.h,
       child: LineChart(
         LineChartData(
           gridData: const FlGridData(show: false),
@@ -252,25 +249,25 @@ class _HourlyChart extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'SALES BY HOUR',
                     style: TextStyle(
                       fontFamily: 'Inter',
-                      fontSize: 11,
+                      fontSize: 11.sp,
                       fontWeight: FontWeight.w700,
                       color: D.gold500,
                       letterSpacing: 0.10,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  SizedBox(height: 0.5.h),
                   RichText(
-                    text: const TextSpan(
+                    text: TextSpan(
                       style: TextStyle(
                         fontFamily: 'Instrument Serif',
-                        fontSize: 20,
+                        fontSize: 20.sp,
                         color: D.fgPrimary,
                       ),
-                      children: [
+                      children: const [
                         TextSpan(text: 'Peak hour '),
                         TextSpan(
                           text: '6–7 pm',
@@ -288,9 +285,9 @@ class _HourlyChart extends StatelessWidget {
               StatusBadge.brand('Live'),
             ],
           ),
-          const SizedBox(height: 16),
+          SizedBox(height: 2.h),
           SizedBox(
-            height: 120,
+            height: 15.h,
             child: BarChart(
               BarChartData(
                 maxY: maxV * 1.2,
@@ -313,14 +310,14 @@ class _HourlyChart extends StatelessWidget {
                   bottomTitles: AxisTitles(
                     sideTitles: SideTitles(
                       showTitles: true,
-                      reservedSize: 20,
+                      reservedSize: 20.sp,
                       getTitlesWidget: (v, _) => Padding(
-                        padding: const EdgeInsets.only(top: 4),
+                        padding: EdgeInsets.only(top: 0.5.h),
                         child: Text(
                           labels[v.toInt()],
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'JetBrains Mono',
-                            fontSize: 9,
+                            fontSize: 9.sp,
                             color: D.fgTertiary,
                           ),
                         ),
@@ -335,9 +332,9 @@ class _HourlyChart extends StatelessWidget {
                     barRods: [
                       BarChartRodData(
                         toY: e.value.toDouble(),
-                        width: 14,
-                        borderRadius: const BorderRadius.vertical(
-                          top: Radius.circular(3),
+                        width: 1.8.w,
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(0.4.h),
                         ),
                         color: isPeak ? D.brand500 : D.brand100,
                       ),
@@ -365,11 +362,11 @@ class _SyncPanel extends ConsumerWidget {
         children: [
           Row(
             children: [
-              const Text(
+              Text(
                 'Sync queue',
                 style: TextStyle(
                   fontFamily: 'Inter',
-                  fontSize: 13,
+                  fontSize: 13.sp,
                   fontWeight: FontWeight.w600,
                   color: D.fgPrimary,
                 ),
@@ -377,26 +374,26 @@ class _SyncPanel extends ConsumerWidget {
               const Spacer(),
               TextButton.icon(
                 onPressed: () => ref.read(syncEngineProvider).sync(),
-                icon: const Icon(Icons.sync_rounded, size: 13),
-                label: const Text('Retry now'),
+                icon: Icon(Icons.sync_rounded, size: 13.sp),
+                label: Text('Retry now', style: TextStyle(fontSize: 11.sp)),
                 style: TextButton.styleFrom(
-                  minimumSize: const Size(0, 26),
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: Size.zero,
+                  padding: EdgeInsets.symmetric(horizontal: 1.w),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          SizedBox(height: 1.8.h),
           _SyncRow('To FBR', StatusBadge.warning('Queued')),
           _SyncRow('To Supabase', StatusBadge.success('0 records')),
           _SyncRow('From server', StatusBadge.info('Ready')),
-          const Divider(height: 20, color: D.borderDefault),
+          Divider(height: 2.5.h, color: D.borderDefault),
           if (lastSync != null)
             Text(
               'Last sync  ${Fmt.timeOnly(lastSync)}',
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Inter',
-                fontSize: 11,
+                fontSize: 11.sp,
                 color: D.fgTertiary,
               ),
             ),
@@ -413,14 +410,14 @@ class _SyncRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 10),
+    padding: EdgeInsets.only(bottom: 1.2.h),
     child: Row(
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontFamily: 'Inter',
-            fontSize: 12,
+            fontSize: 12.sp,
             color: D.fgSecondary,
           ),
         ),
@@ -441,16 +438,15 @@ class _RecentInvoices extends StatelessWidget {
       padding: EdgeInsets.zero,
       child: Column(
         children: [
-          // Card header
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            padding: EdgeInsets.fromLTRB(2.w, 1.5.h, 2.w, 1.5.h),
             child: Row(
               children: [
-                const Text(
+                Text(
                   'Recent invoices',
                   style: TextStyle(
                     fontFamily: 'Inter',
-                    fontSize: 13,
+                    fontSize: 13.sp,
                     fontWeight: FontWeight.w600,
                     color: D.fgPrimary,
                   ),
@@ -459,15 +455,15 @@ class _RecentInvoices extends StatelessWidget {
                 TextButton(
                   onPressed: () {},
                   style: TextButton.styleFrom(
-                    minimumSize: const Size(0, 26),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: Size.zero,
+                    padding: EdgeInsets.symmetric(horizontal: 1.w),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text('View all'),
-                      SizedBox(width: 4),
-                      Icon(Icons.open_in_new_rounded, size: 11),
+                      Text('View all', style: TextStyle(fontSize: 11.sp)),
+                      SizedBox(width: 0.5.w),
+                      Icon(Icons.open_in_new_rounded, size: 11.sp),
                     ],
                   ),
                 ),
@@ -475,16 +471,15 @@ class _RecentInvoices extends StatelessWidget {
             ),
           ),
           const Divider(height: 1, color: D.borderDefault),
-          // Table
           if (invoices.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(32),
+            Padding(
+              padding: EdgeInsets.all(4.h),
               child: Center(
                 child: Text(
                   'No invoices today',
                   style: TextStyle(
                     fontFamily: 'Inter',
-                    fontSize: 13,
+                    fontSize: 13.sp,
                     color: D.fgTertiary,
                   ),
                 ),
@@ -497,7 +492,9 @@ class _RecentInvoices extends StatelessWidget {
                 1: FlexColumnWidth(2),
                 2: FlexColumnWidth(1.2),
                 3: FlexColumnWidth(1.5),
-                4: FixedColumnWidth(80),
+                4: FixedColumnWidth(
+                  80,
+                ), // keep as fixed for time column; could also use Sizer but time column width is ok
               },
               children: [
                 TableRow(
@@ -505,15 +502,15 @@ class _RecentInvoices extends StatelessWidget {
                   children: ['Invoice', 'Customer', 'FBR', 'Total', 'Time']
                       .map(
                         (h) => Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 1.8.w,
+                            vertical: 1.2.h,
                           ),
                           child: Text(
                             h.toUpperCase(),
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontFamily: 'Inter',
-                              fontSize: 10,
+                              fontSize: 10.sp,
                               fontWeight: FontWeight.w700,
                               color: D.gold600,
                               letterSpacing: 0.14,
@@ -529,9 +526,9 @@ class _RecentInvoices extends StatelessWidget {
                       _TCell(
                         child: Text(
                           inv['number'] as String? ?? '',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'JetBrains Mono',
-                            fontSize: 11.5,
+                            fontSize: 11.5.sp,
                             color: D.fgSecondary,
                           ),
                         ),
@@ -539,9 +536,9 @@ class _RecentInvoices extends StatelessWidget {
                       _TCell(
                         child: Text(
                           'Walk-in',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'Inter',
-                            fontSize: 13,
+                            fontSize: 13.sp,
                             color: D.fgPrimary,
                           ),
                         ),
@@ -554,9 +551,9 @@ class _RecentInvoices extends StatelessWidget {
                       _TCell(
                         child: Text(
                           'Rs. ${Fmt.pkrShort((inv['amount'] as num?)?.toDouble() ?? 0.0)}',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'JetBrains Mono',
-                            fontSize: 13,
+                            fontSize: 13.sp,
                             fontWeight: FontWeight.w600,
                             color: D.fgPrimary,
                           ),
@@ -567,9 +564,9 @@ class _RecentInvoices extends StatelessWidget {
                           Fmt.timeOnly(
                             inv['date'] as DateTime? ?? DateTime.now(),
                           ),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'JetBrains Mono',
-                            fontSize: 13,
+                            fontSize: 13.sp,
                             color: D.fgSecondary,
                           ),
                         ),
@@ -591,7 +588,7 @@ class _TCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+    padding: EdgeInsets.symmetric(horizontal: 1.8.w, vertical: 1.4.h),
     child: child,
   );
 }

@@ -1,8 +1,20 @@
 // lib/shared/widgets/main_shell.dart
-// Design: Inover Studio ERP — forest emerald sidebar + gold accents
+// Design Philosophy: "Polished Obsidian — Gilded"
+// Dark mineral surfaces with dominant gold veins and crystalline gold highlights.
+// Typography: Instrument Serif (display), Cabinet Grotesk (body), JetBrains Mono (data)
+// Spatial: Asymmetric, layered, gold structural accents.
+// Anthropic Frontend-Design Skill applied:
+// - Distinctive fonts (no Inter/Roboto/Arial)
+// - Dominant dark palette with sharp gold accents, minimal green
+// - Atmospheric depth via grain texture, dramatic shadows, layered glass
+// - Staggered motion reveals for navigation
+// - Grid-breaking spatial composition
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
+import 'package:sizer/sizer.dart';
 
 import '../../core/constants/app_constants.dart';
 import '../../core/licensing/license_service.dart';
@@ -32,36 +44,44 @@ class _MainShellState extends ConsumerState<MainShell> {
     return AppLoadingOverlay(
       child: Scaffold(
         backgroundColor: D.bgApp,
-        body: Column(
+        body: Stack(
           children: [
-            // ── Topbar ───────────────────────────────
-            _Topbar(sync: sync, license: license, locale: locale, biz: biz),
-
-            // ── License warning ───────────────────────
-            if (license?.message != null &&
-                (license!.status == LicenseStatus.gracePeriod ||
-                    (license.status == LicenseStatus.valid &&
-                        (license.daysRemaining ?? 99) <= 7)))
-              _LicenseBanner(message: license.message!),
-
-            // ── Body: sidebar + main ──────────────────
-            Expanded(
-              child: Row(
-                children: [
-                  _Sidebar(
-                    role: role,
-                    locale: locale,
-                    biz: biz,
-                    bizType: bizType,
-                  ),
-                  // Main area with ambient blobs
-                  Expanded(child: _MainArea(child: widget.child)),
-                ],
+            // ── Global grain texture overlay ──────────
+            Positioned.fill(
+              child: Opacity(
+                opacity: 0.03,
+                child: CustomPaint(painter: _GrainTexturePainter()),
               ),
             ),
 
-            // ── Statusbar ─────────────────────────────
-            _Statusbar(sync: sync, biz: biz),
+            // ── Main layout ────────────────────────────
+            Column(
+              children: [
+                _Topbar(sync: sync, license: license, locale: locale, biz: biz),
+
+                if (license?.message != null &&
+                    (license!.status == LicenseStatus.gracePeriod ||
+                        (license.status == LicenseStatus.valid &&
+                            (license.daysRemaining ?? 99) <= 7)))
+                  _LicenseBanner(message: license.message!),
+
+                Expanded(
+                  child: Row(
+                    children: [
+                      _Sidebar(
+                        role: role,
+                        locale: locale,
+                        biz: biz,
+                        bizType: bizType,
+                      ),
+                      Expanded(child: _MainArea(child: widget.child)),
+                    ],
+                  ),
+                ),
+
+                _Statusbar(sync: sync, biz: biz),
+              ],
+            ),
           ],
         ),
       ),
@@ -70,7 +90,42 @@ class _MainShellState extends ConsumerState<MainShell> {
 }
 
 // ─────────────────────────────────────────────────
-//  TOPBAR  — frosted glass pill, breadcrumb, search
+//  GRAIN TEXTURE PAINTER
+// ─────────────────────────────────────────────────
+class _GrainTexturePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rng = _PseudoRandom(42);
+    final paint = Paint()..color = Colors.white.withOpacity(0.5);
+    for (double y = 0; y < size.height; y += 2.0) {
+      for (double x = 0; x < size.width; x += 2.0) {
+        if (rng.nextBool()) {
+          canvas.drawRect(
+            Rect.fromLTWH(x + rng.nextDouble(), y + rng.nextDouble(), 1, 1),
+            paint,
+          );
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_) => false;
+}
+
+class _PseudoRandom {
+  int _seed;
+  _PseudoRandom(this._seed);
+  double nextDouble() {
+    _seed = (_seed * 16807) % 2147483647;
+    return _seed / 2147483647;
+  }
+
+  bool nextBool() => nextDouble() > 0.5;
+}
+
+// ─────────────────────────────────────────────────
+//  TOPBAR — Dark steel with gold edge
 // ─────────────────────────────────────────────────
 class _Topbar extends ConsumerWidget {
   final SyncState? sync;
@@ -90,64 +145,67 @@ class _Topbar extends ConsumerWidget {
     final crumb = _pathToCrumb(path);
 
     return Container(
-      height: D.topbarHeight,
+      height: 7.5.h,
       decoration: BoxDecoration(
-        color: D.bgSurface.withOpacity(0.85),
-        border: const Border(
-          bottom: BorderSide(color: Color(0x38C49A4A)),
-        ), // gold 22% alpha
-        boxShadow: const [
-          BoxShadow(color: Color(0x08C49A4A), offset: Offset(0, 1)),
+        gradient: const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF0D1A13), Color(0xFF0A1410)],
+        ),
+        border: Border(
+          bottom: BorderSide(color: D.gold400.withOpacity(0.35), width: 0.12.h),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.4),
+            offset: Offset(0, 0.3.h),
+            blurRadius: 0.8.h,
+          ),
         ],
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 22),
+      padding: EdgeInsets.symmetric(horizontal: 2.5.w),
       child: Row(
         children: [
-          // Breadcrumb
           Text(
             crumb,
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: D.fgPrimary,
+            style: TextStyle(
+              fontFamily: 'Instrument Serif',
+              fontSize: 15.sp,
+              fontStyle: FontStyle.italic,
+              color: D.gold300.withOpacity(0.85),
+              letterSpacing: 0.01,
             ),
           ),
-          // Search pill
-          const SizedBox(width: 16),
+          SizedBox(width: 2.5.w),
           Expanded(
             child: Center(
               child: Container(
-                constraints: const BoxConstraints(maxWidth: 480),
-                height: 32,
+                constraints: BoxConstraints(maxWidth: 55.w),
+                height: 3.8.h,
                 decoration: BoxDecoration(
-                  color: D.bgSurface.withOpacity(0.55),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: const Color(0x4DC49A4A)),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x0A0A1A11),
-                      offset: Offset(0, 1),
-                      blurRadius: 2,
-                    ),
-                  ],
+                  color: Colors.black.withOpacity(0.35),
+                  borderRadius: BorderRadius.circular(0.5.h),
+                  border: Border.all(
+                    color: D.gold400.withOpacity(0.18),
+                    width: 0.1.h,
+                  ),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
+                padding: EdgeInsets.symmetric(horizontal: 1.5.w),
                 child: Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.search_rounded,
-                      size: 14,
-                      color: D.fgTertiary,
+                      size: 14.sp,
+                      color: D.fgTertiary.withOpacity(0.5),
                     ),
-                    const SizedBox(width: 8),
+                    SizedBox(width: 1.w),
                     Expanded(
                       child: Text(
                         'Search invoices, products, customers…',
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 13,
-                          color: D.fgTertiary,
+                        style: TextStyle(
+                          fontFamily: 'Cabinet Grotesk',
+                          fontSize: 10.5.sp,
+                          color: D.fgTertiary.withOpacity(0.45),
                         ),
                       ),
                     ),
@@ -157,10 +215,9 @@ class _Topbar extends ConsumerWidget {
               ),
             ),
           ),
-          const SizedBox(width: 16),
-          // Right actions
+          SizedBox(width: 2.5.w),
           _LangToggle(locale: locale, primary: biz.primary),
-          const SizedBox(width: 8),
+          SizedBox(width: 1.2.w),
           _TopbarAvatar(),
         ],
       ),
@@ -191,23 +248,26 @@ class _KbdChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+    padding: EdgeInsets.symmetric(horizontal: 0.7.w, vertical: 0.15.h),
     decoration: BoxDecoration(
-      color: D.bgSurface,
-      borderRadius: BorderRadius.circular(3),
-      border: Border(
-        top: const BorderSide(color: D.borderDefault),
-        left: const BorderSide(color: D.borderDefault),
-        right: const BorderSide(color: D.borderDefault),
-        bottom: const BorderSide(color: D.neutral300, width: 2),
-      ),
+      color: const Color(0xFF1A2A1F),
+      borderRadius: BorderRadius.circular(0.4.h),
+      border: Border.all(color: D.gold400.withOpacity(0.2), width: 0.08.h),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.5),
+          offset: Offset(0, 0.15.h),
+          blurRadius: 0,
+        ),
+      ],
     ),
     child: Text(
       label,
-      style: const TextStyle(
+      style: TextStyle(
         fontFamily: 'JetBrains Mono',
-        fontSize: 10,
-        color: D.fgSecondary,
+        fontSize: 9.sp,
+        fontWeight: FontWeight.w500,
+        color: D.gold300.withOpacity(0.7),
       ),
     ),
   );
@@ -221,24 +281,24 @@ class _LangToggle extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return InkWell(
-      borderRadius: BorderRadius.circular(4),
+      borderRadius: BorderRadius.circular(0.5.h),
       onTap: () => ref.read(localeProvider.notifier).toggle(),
       child: Container(
-        height: 26,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
+        height: 3.h,
+        padding: EdgeInsets.symmetric(horizontal: 1.w),
         decoration: BoxDecoration(
-          border: Border.all(color: D.borderDefault),
-          borderRadius: BorderRadius.circular(4),
-          color: D.bgSurface,
+          border: Border.all(color: D.gold400.withOpacity(0.25), width: 0.08.h),
+          borderRadius: BorderRadius.circular(0.5.h),
+          color: Colors.black.withOpacity(0.3),
         ),
         alignment: Alignment.center,
         child: Text(
           locale == AppLocale.english ? 'اردو' : 'EN',
           style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 12,
+            fontFamily: 'Cabinet Grotesk',
+            fontSize: 10.sp,
             fontWeight: FontWeight.w600,
-            color: D.fgSecondary,
+            color: D.gold300,
           ),
         ),
       ),
@@ -250,26 +310,30 @@ class _TopbarAvatar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Container(
-      width: 28,
-      height: 28,
+      width: 3.4.h,
+      height: 3.4.h,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [D.brand400, D.brand700],
+          colors: [Color(0xFFB8860B), Color(0xFF6B4E0A)], // gold tones
         ),
-        border: Border.all(color: D.gold400, width: 1.5),
-        boxShadow: const [
-          BoxShadow(color: Color(0x26C49A4A), blurRadius: 0, spreadRadius: 3),
+        border: Border.all(color: D.gold400.withOpacity(0.6), width: 0.18.h),
+        boxShadow: [
+          BoxShadow(
+            color: D.gold400.withOpacity(0.4),
+            blurRadius: 1.h,
+            spreadRadius: 0.15.h,
+          ),
         ],
       ),
       alignment: Alignment.center,
-      child: const Text(
+      child: Text(
         'A',
         style: TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 11,
+          fontFamily: 'Cabinet Grotesk',
+          fontSize: 11.sp,
           fontWeight: FontWeight.w700,
           color: Colors.white,
         ),
@@ -279,7 +343,7 @@ class _TopbarAvatar extends ConsumerWidget {
 }
 
 // ─────────────────────────────────────────────────
-//  MAIN AREA  — ambient glow blobs behind glass cards
+//  MAIN AREA — Warm gold glows, minimal green
 // ─────────────────────────────────────────────────
 class _MainArea extends StatelessWidget {
   final Widget child;
@@ -289,42 +353,76 @@ class _MainArea extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Ambient blob 1 — emerald
+        // Large warm gold ambient — bottom-left
         Positioned(
-          top: 220,
-          left: MediaQuery.of(context).size.width * 0.25,
-          child: _Blob(380, 380, D.brand500.withOpacity(0.10)),
+          bottom: 8.h,
+          left: 3.w,
+          child: _CrystallineGlow(
+            size: 45.w,
+            color: D.gold400.withOpacity(0.09), // soft gold
+            blur: 18.w,
+          ),
         ),
-        // Ambient blob 2 — gold
+        // Sharper gold highlight — top-right
         Positioned(
-          bottom: 80,
-          right: 120,
-          child: _Blob(280, 280, D.gold400.withOpacity(0.08)),
+          top: 12.h,
+          right: 6.w,
+          child: _CrystallineGlow(
+            size: 22.w,
+            color: D.gold400.withOpacity(0.11),
+            blur: 8.w,
+          ),
         ),
-        // Content
+        // Tiny gold spark — center-left
+        Positioned(
+          top: 35.h,
+          left: 25.w,
+          child: _CrystallineGlow(
+            size: 6.w,
+            color: D.gold300.withOpacity(0.12),
+            blur: 3.w,
+          ),
+        ),
         child,
       ],
     );
   }
 }
 
-class _Blob extends StatelessWidget {
-  final double w, h;
+class _CrystallineGlow extends StatelessWidget {
+  final double size;
   final Color color;
-  const _Blob(this.w, this.h, this.color);
+  final double blur;
+  const _CrystallineGlow({
+    required this.size,
+    required this.color,
+    required this.blur,
+  });
 
   @override
   Widget build(BuildContext context) => Container(
-    width: w,
-    height: h,
-    decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-    // Blur effect (approximated — Flutter doesn't have CSS filter:blur on containers)
-    // We use a very large border radius + reduced opacity for the blob feel
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      gradient: RadialGradient(
+        center: Alignment.center,
+        radius: 0.5,
+        colors: [color, color.withOpacity(0.0)],
+      ),
+      boxShadow: [
+        BoxShadow(
+          color: color.withOpacity(0.3),
+          blurRadius: blur,
+          spreadRadius: blur * 0.3,
+        ),
+      ],
+    ),
   );
 }
 
 // ─────────────────────────────────────────────────
-//  SIDEBAR  — deep forest-black + gold accents
+//  SIDEBAR — Obsidian with dominant gold vein
 // ─────────────────────────────────────────────────
 class _Sidebar extends ConsumerWidget {
   final UserRole role;
@@ -345,54 +443,64 @@ class _Sidebar extends ConsumerWidget {
     final user = ref.watch(currentUserProvider);
 
     return Container(
-      width: D.sidebarWidth,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
+      width: 21.w,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFF0A1A11), Color(0xFF040E08)],
+          colors: [Color(0xFF08120C), Color(0xFF020503)],
         ),
-        border: Border(right: BorderSide(color: Color(0xFF040E08))),
+        border: Border(
+          right: BorderSide(
+            color: Colors.black.withOpacity(0.6),
+            width: 0.25.w,
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.6),
+            offset: Offset(0.4.w, 0),
+            blurRadius: 2.w,
+          ),
+        ],
       ),
       child: Stack(
         children: [
-          // Dot grid texture
-          _DotGrid(),
-          // Gold right border line
+          _DotGridTexture(),
+          // Gold vein — vertical line
           Positioned(
             top: 0,
             bottom: 0,
-            right: 0,
+            right: 0.3.w,
             child: Container(
-              width: 1,
-              decoration: const BoxDecoration(
+              width: 0.15.w,
+              decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
                     Colors.transparent,
-                    D.gold500,
-                    D.gold500,
+                    D.gold500.withOpacity(0.6),
+                    D.gold500.withOpacity(0.9),
+                    D.gold500.withOpacity(0.6),
                     Colors.transparent,
                   ],
-                  stops: [0.0, 0.3, 0.7, 1.0],
+                  stops: const [0.0, 0.25, 0.5, 0.75, 1.0],
                 ),
               ),
             ),
           ),
-          // Content
           Column(
             children: [
-              // Brand header
               _SidebarBrand(bizType: bizType),
-              // Nav
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(8),
+                  padding: EdgeInsets.all(0.8.w),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _NavItem(
+                        index: 0,
                         route: '/dashboard',
                         icon: Icons.dashboard_rounded,
                         labelEn: 'Dashboard',
@@ -401,6 +509,7 @@ class _Sidebar extends ConsumerWidget {
                         locale: locale,
                       ),
                       _NavItem(
+                        index: 1,
                         route: '/pos',
                         icon: Icons.point_of_sale_rounded,
                         labelEn: bizType.saleLabel,
@@ -410,6 +519,7 @@ class _Sidebar extends ConsumerWidget {
                         trailing: _KbdSm('F1'),
                       ),
                       _NavItem(
+                        index: 2,
                         route: '/inventory',
                         icon: Icons.inventory_2_rounded,
                         labelEn: bizType.productLabel,
@@ -418,6 +528,7 @@ class _Sidebar extends ConsumerWidget {
                         locale: locale,
                       ),
                       _NavItem(
+                        index: 3,
                         route: '/customers',
                         icon: Icons.people_rounded,
                         labelEn: bizType.customerLabel,
@@ -427,6 +538,7 @@ class _Sidebar extends ConsumerWidget {
                       ),
                       if (role.canManageProducts) ...[
                         _NavItem(
+                          index: 4,
                           route: '/purchase',
                           icon: Icons.shopping_cart_rounded,
                           labelEn: 'Purchase',
@@ -435,12 +547,10 @@ class _Sidebar extends ConsumerWidget {
                           locale: locale,
                         ),
                       ],
-
-                      // Insights section
                       _SidebarSectionLabel('Insights'),
-
                       if (role.canViewReports)
                         _NavItem(
+                          index: 5,
                           route: '/reports',
                           icon: Icons.bar_chart_rounded,
                           labelEn: 'Reports',
@@ -450,6 +560,7 @@ class _Sidebar extends ConsumerWidget {
                         ),
                       if (role.canViewAccounts)
                         _NavItem(
+                          index: 6,
                           route: '/accounts',
                           icon: Icons.account_balance_rounded,
                           labelEn: 'Accounts',
@@ -461,7 +572,6 @@ class _Sidebar extends ConsumerWidget {
                   ),
                 ),
               ),
-              // Footer: settings + avatar
               _SidebarFooter(
                 user: user,
                 onSettings: () => context.go('/settings'),
@@ -474,22 +584,22 @@ class _Sidebar extends ConsumerWidget {
   }
 }
 
-class _DotGrid extends StatelessWidget {
+class _DotGridTexture extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
-      Positioned.fill(child: CustomPaint(painter: _DotGridPainter()));
+      Positioned.fill(child: CustomPaint(painter: _DotGridTexturePainter()));
 }
 
-class _DotGridPainter extends CustomPainter {
+class _DotGridTexturePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = D.gold400.withOpacity(0.07)
+      ..color = D.gold400.withOpacity(0.04)
       ..style = PaintingStyle.fill;
-    const spacing = 16.0;
+    final spacing = 2.2.w;
     for (double x = 0; x < size.width; x += spacing) {
       for (double y = 0; y < size.height; y += spacing) {
-        canvas.drawCircle(Offset(x, y), 1, paint);
+        canvas.drawCircle(Offset(x + 0.3.w, y + 0.3.w), 0.1.w, paint);
       }
     }
   }
@@ -504,49 +614,64 @@ class _SidebarBrand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: D.topbarHeight,
-    padding: const EdgeInsets.symmetric(horizontal: 16),
-    decoration: const BoxDecoration(
-      border: Border(bottom: BorderSide(color: Color(0x2EC49A4A))),
+    height: 7.5.h,
+    padding: EdgeInsets.symmetric(horizontal: 1.8.w),
+    decoration: BoxDecoration(
+      border: Border(
+        bottom: BorderSide(color: D.gold400.withOpacity(0.15), width: 0.1.h),
+      ),
     ),
     child: Row(
       children: [
+        // Gold brand mark
         Container(
-          width: 28,
-          height: 28,
+          width: 3.6.h,
+          height: 3.6.h,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(6),
-            gradient: const LinearGradient(colors: [D.brand400, D.brand700]),
+            borderRadius: BorderRadius.circular(0.6.h),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFD4AF37), Color(0xFF8B6914)], // gold gradient
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: D.gold400.withOpacity(0.5),
+                blurRadius: 1.2.h,
+                spreadRadius: 0.1.h,
+              ),
+            ],
           ),
           alignment: Alignment.center,
           child: Icon(
             BusinessTypeIconX(bizType).moduleIcon ?? Icons.store_rounded,
-            size: 16,
+            size: 17.sp,
             color: Colors.white,
           ),
         ),
-        const SizedBox(width: 10),
+        SizedBox(width: 1.w),
         Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               AppConstants.appName,
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: D.fgOnInk,
-                letterSpacing: -0.01,
+              style: TextStyle(
+                fontFamily: 'Cabinet Grotesk',
+                fontSize: 13.sp,
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFFF0ECD6),
+                letterSpacing: -0.03,
               ),
             ),
+            SizedBox(height: 0.15.h),
             Text(
               bizType.label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'Instrument Serif',
-                fontSize: 11,
+                fontSize: 10.sp,
                 fontStyle: FontStyle.italic,
-                color: D.gold300,
+                color: D.gold300.withOpacity(0.7),
               ),
             ),
           ],
@@ -562,26 +687,40 @@ class _SidebarSectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(10, 14, 10, 6),
+    padding: EdgeInsets.fromLTRB(1.4.w, 2.h, 1.4.w, 0.8.h),
     child: Row(
       children: [
-        Text(
-          label.toUpperCase(),
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            color: D.gold400,
-            letterSpacing: 0.18,
+        Transform.rotate(
+          angle: 0.785,
+          child: Container(
+            width: 0.8.w,
+            height: 0.8.w,
+            decoration: BoxDecoration(
+              color: D.gold400.withOpacity(0.7),
+              boxShadow: [
+                BoxShadow(color: D.gold400.withOpacity(0.4), blurRadius: 0.6.h),
+              ],
+            ),
           ),
         ),
-        const SizedBox(width: 8),
+        SizedBox(width: 0.8.w),
+        Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            fontFamily: 'Cabinet Grotesk',
+            fontSize: 8.5.sp,
+            fontWeight: FontWeight.w800,
+            color: D.gold400.withOpacity(0.55),
+            letterSpacing: 0.22,
+          ),
+        ),
+        SizedBox(width: 0.8.w),
         Expanded(
           child: Container(
-            height: 1,
-            decoration: const BoxDecoration(
+            height: 0.08.h,
+            decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [Color(0x4DC49A4A), Colors.transparent],
+                colors: [D.gold400.withOpacity(0.3), Colors.transparent],
               ),
             ),
           ),
@@ -591,7 +730,8 @@ class _SidebarSectionLabel extends StatelessWidget {
   );
 }
 
-class _NavItem extends StatelessWidget {
+class _NavItem extends StatefulWidget {
+  final int index;
   final String route;
   final IconData icon;
   final String labelEn;
@@ -601,6 +741,7 @@ class _NavItem extends StatelessWidget {
   final Widget? trailing;
 
   const _NavItem({
+    required this.index,
     required this.route,
     required this.icon,
     required this.labelEn,
@@ -611,69 +752,115 @@ class _NavItem extends StatelessWidget {
   });
 
   @override
+  State<_NavItem> createState() => _NavItemState();
+}
+
+class _NavItemState extends State<_NavItem> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    final isActive = currentPath.startsWith(route);
-    final label = locale.isRtl ? labelUr : labelEn;
+    final isActive = widget.currentPath.startsWith(widget.route);
+    final label = widget.locale.isRtl ? widget.labelUr : widget.labelEn;
+    final staggerDelay = (100 + widget.index * 40).ms;
+    final entranceDuration = 350.ms;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 1),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(4),
-          onTap: () => context.go(route),
-          hoverColor: const Color(0x1AC49A4A),
-          splashColor: const Color(0x0DC49A4A),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(4),
-              gradient: isActive
-                  ? const LinearGradient(
-                      colors: [Color(0x2EC49A4A), Color(0x38116B43)],
-                    )
-                  : null,
-              boxShadow: isActive
-                  ? [const BoxShadow(color: Color(0x00000000))]
-                  : null,
-            ),
-            foregroundDecoration: isActive
-                ? BoxDecoration(
-                    borderRadius: BorderRadius.circular(4),
-                    border: const Border(
-                      left: BorderSide(color: D.gold400, width: 3),
-                    ),
-                  )
-                : null,
-            child: Row(
-              children: [
-                Icon(
-                  icon,
-                  size: 16,
-                  color: isActive ? D.gold300 : const Color(0xC7F5EFD9),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 13,
-                      fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
-                      color: isActive
-                          ? const Color(0xFFF5EFD9)
-                          : const Color(0xC7F5EFD9),
-                    ),
+          padding: EdgeInsets.only(bottom: 0.15.h),
+          child: MouseRegion(
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() => _hovered = false),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(0.6.h),
+                onTap: () => context.go(widget.route),
+                hoverColor: D.gold400.withOpacity(0.08),
+                splashColor: D.gold400.withOpacity(0.03),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOutCubic,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: 1.4.w,
+                    vertical: 0.9.h,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(0.6.h),
+                    border: isActive
+                        ? Border(
+                            left: BorderSide(color: D.gold400, width: 0.35.w),
+                          )
+                        : (_hovered
+                              ? Border(
+                                  left: BorderSide(
+                                    color: D.gold400.withOpacity(0.3),
+                                    width: 0.2.w,
+                                  ),
+                                )
+                              : null),
+                    gradient: isActive
+                        ? LinearGradient(
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            colors: [
+                              D.gold400.withOpacity(
+                                0.2,
+                              ), // gold wash instead of green
+                              Colors.transparent,
+                            ],
+                          )
+                        : (_hovered
+                              ? LinearGradient(
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                  colors: [
+                                    D.gold400.withOpacity(0.06),
+                                    Colors.transparent,
+                                  ],
+                                )
+                              : null),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        widget.icon,
+                        size: 15.sp,
+                        color: isActive ? D.gold300 : const Color(0x99F0ECD6),
+                      ),
+                      SizedBox(width: 1.w),
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: TextStyle(
+                            fontFamily: 'Cabinet Grotesk',
+                            fontSize: 11.sp,
+                            fontWeight: isActive
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: isActive
+                                ? const Color(0xFFF0ECD6)
+                                : const Color(0x99F0ECD6),
+                            letterSpacing: isActive ? 0.01 : 0,
+                          ),
+                        ),
+                      ),
+                      if (widget.trailing != null) widget.trailing!,
+                    ],
                   ),
                 ),
-                if (trailing != null) trailing!,
-              ],
+              ),
             ),
           ),
-        ),
-      ),
-    );
+        )
+        .animate()
+        .fadeIn(duration: entranceDuration, delay: staggerDelay)
+        .slideX(
+          begin: -0.08,
+          end: 0,
+          duration: entranceDuration,
+          delay: staggerDelay,
+          curve: Curves.easeOutCubic,
+        );
   }
 }
 
@@ -683,19 +870,21 @@ class _KbdSm extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    height: 18,
-    padding: const EdgeInsets.symmetric(horizontal: 4),
+    height: 2.h,
+    padding: EdgeInsets.symmetric(horizontal: 0.5.w),
     decoration: BoxDecoration(
-      border: Border.all(color: const Color(0x4DF5EFD9)),
-      borderRadius: BorderRadius.circular(3),
+      border: Border.all(color: D.gold400.withOpacity(0.2), width: 0.06.h),
+      borderRadius: BorderRadius.circular(0.3.h),
+      color: const Color(0xFF0D1A13),
     ),
     alignment: Alignment.center,
     child: Text(
       label,
-      style: const TextStyle(
+      style: TextStyle(
         fontFamily: 'JetBrains Mono',
-        fontSize: 10,
-        color: Color(0x73F5EFD9),
+        fontSize: 8.5.sp,
+        fontWeight: FontWeight.w600,
+        color: D.gold300.withOpacity(0.6),
       ),
     ),
   );
@@ -708,74 +897,89 @@ class _SidebarFooter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-    decoration: const BoxDecoration(
-      border: Border(top: BorderSide(color: Color(0x2EC49A4A))),
+    padding: EdgeInsets.symmetric(horizontal: 1.8.w, vertical: 1.h),
+    decoration: BoxDecoration(
+      border: Border(
+        top: BorderSide(color: D.gold400.withOpacity(0.1), width: 0.08.h),
+      ),
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Colors.black.withOpacity(0.2), Colors.black.withOpacity(0.0)],
+      ),
     ),
     child: Row(
       children: [
         Container(
-          width: 28,
-          height: 28,
+          width: 3.2.h,
+          height: 3.2.h,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: const LinearGradient(colors: [D.brand400, D.brand700]),
-            border: Border.all(color: D.gold400, width: 1),
-            boxShadow: const [
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFD4AF37), Color(0xFF8B6914)], // gold
+            ),
+            border: Border.all(
+              color: D.gold400.withOpacity(0.4),
+              width: 0.12.h,
+            ),
+            boxShadow: [
               BoxShadow(
-                color: Color(0x26C49A4A),
-                blurRadius: 0,
-                spreadRadius: 3,
+                color: D.gold400.withOpacity(0.3),
+                blurRadius: 0.8.h,
+                spreadRadius: 0.1.h,
               ),
             ],
           ),
           alignment: Alignment.center,
-          child: const Text(
+          child: Text(
             'A',
             style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 11,
+              fontFamily: 'Cabinet Grotesk',
+              fontSize: 11.sp,
               fontWeight: FontWeight.w700,
               color: Colors.white,
             ),
           ),
         ),
-        const SizedBox(width: 10),
+        SizedBox(width: 1.w),
         Expanded(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Admin',
                 style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: Color(0xFFF5EFD9),
+                  fontFamily: 'Cabinet Grotesk',
+                  fontSize: 11.sp,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFFF0ECD6),
                 ),
               ),
-              const Text(
+              SizedBox(height: 0.15.h),
+              Text(
                 'Owner',
                 style: TextStyle(
                   fontFamily: 'Instrument Serif',
-                  fontSize: 11,
+                  fontSize: 9.5.sp,
                   fontStyle: FontStyle.italic,
-                  color: D.gold300,
+                  color: D.gold300.withOpacity(0.55),
                 ),
               ),
             ],
           ),
         ),
         InkWell(
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(0.5.h),
           onTap: onSettings,
-          child: const Padding(
-            padding: EdgeInsets.all(4),
+          child: Padding(
+            padding: EdgeInsets.all(0.4.w),
             child: Icon(
               Icons.settings_rounded,
-              size: 15,
-              color: Color(0x73F5EFD9),
+              size: 15.sp,
+              color: D.gold400.withOpacity(0.35),
             ),
           ),
         ),
@@ -785,7 +989,7 @@ class _SidebarFooter extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────
-//  STATUSBAR  — dark emerald strip at bottom
+//  STATUSBAR — Gold accents, reduced green
 // ─────────────────────────────────────────────────
 class _Statusbar extends ConsumerWidget {
   final SyncState? sync;
@@ -796,11 +1000,12 @@ class _Statusbar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final status = sync?.status ?? SyncStatus.idle;
     final online = status != SyncStatus.offline;
+    // Synced status: gold dot instead of green
     final (dotColor, syncLabel) = switch (status) {
-      SyncStatus.syncing => (D.brand400, 'Syncing…'),
+      SyncStatus.syncing => (D.gold400, 'Syncing…'),
       SyncStatus.offline => (D.warning500, 'Offline — sync paused'),
       SyncStatus.error => (D.danger500, 'Sync error'),
-      _ => (D.brand400, 'All synced'),
+      _ => (D.gold400, 'All synced'),
     };
     final branch =
         ref.watch(prefsProvider).getString(AppConstants.keyBranchId) ?? '';
@@ -808,14 +1013,16 @@ class _Statusbar extends ConsumerWidget {
     final timeStr = now.format(context);
 
     return Container(
-      height: D.statusbarHeight,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF0A1A11), Color(0xFF040E08)],
+      height: 3.2.h,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF060D08), Color(0xFF020402)],
         ),
-        border: Border(top: BorderSide(color: Color(0x38C49A4A))),
+        border: Border(
+          top: BorderSide(color: D.gold400.withOpacity(0.12), width: 0.08.h),
+        ),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 18),
+      padding: EdgeInsets.symmetric(horizontal: 2.w),
       child: Row(
         children: [
           _StatusGroup(
@@ -823,10 +1030,10 @@ class _Statusbar extends ConsumerWidget {
               _StatusDot(dotColor),
               Text(
                 syncLabel,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'JetBrains Mono',
-                  fontSize: 11,
-                  color: Color(0xD9F5EFD9),
+                  fontSize: 9.sp,
+                  color: const Color(0xBFE8E4D0),
                   letterSpacing: 0.02,
                 ),
               ),
@@ -837,15 +1044,15 @@ class _Statusbar extends ConsumerWidget {
             children: [
               Icon(
                 online ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-                size: 11,
-                color: const Color(0x80F5EFD9),
+                size: 10.sp,
+                color: const Color(0x66E8E4D0),
               ),
               Text(
                 online ? 'Online' : 'Offline',
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: 'JetBrains Mono',
-                  fontSize: 11,
-                  color: Color(0xD9F5EFD9),
+                  fontSize: 9.sp,
+                  color: const Color(0xBFE8E4D0),
                 ),
               ),
             ],
@@ -854,17 +1061,17 @@ class _Statusbar extends ConsumerWidget {
             _StatusSep(),
             _StatusGroup(
               children: [
-                const Icon(
+                Icon(
                   Icons.apartment_rounded,
-                  size: 11,
-                  color: Color(0x80F5EFD9),
+                  size: 10.sp,
+                  color: const Color(0x66E8E4D0),
                 ),
                 Text(
                   branch.length > 20 ? branch.substring(0, 20) : branch,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'JetBrains Mono',
-                    fontSize: 11,
-                    color: Color(0xD9F5EFD9),
+                    fontSize: 9.sp,
+                    color: const Color(0xBFE8E4D0),
                   ),
                 ),
               ],
@@ -873,13 +1080,17 @@ class _Statusbar extends ConsumerWidget {
           const Spacer(),
           _StatusGroup(
             children: [
-              const Icon(Icons.verified_rounded, size: 11, color: D.gold400),
-              const Text(
+              Icon(
+                Icons.verified_rounded,
+                size: 10.sp,
+                color: D.gold400.withOpacity(0.7),
+              ),
+              Text(
                 'FBR connected',
                 style: TextStyle(
                   fontFamily: 'JetBrains Mono',
-                  fontSize: 11,
-                  color: D.gold300,
+                  fontSize: 9.sp,
+                  color: D.gold300.withOpacity(0.6),
                   letterSpacing: 0.02,
                 ),
               ),
@@ -888,19 +1099,19 @@ class _Statusbar extends ConsumerWidget {
           _StatusSep(),
           Text(
             AppConstants.appVersion,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'JetBrains Mono',
-              fontSize: 11,
-              color: Color(0x59F5EFD9),
+              fontSize: 9.sp,
+              color: const Color(0x4DE8E4D0),
             ),
           ),
           _StatusSep(),
           Text(
             timeStr,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: 'JetBrains Mono',
-              fontSize: 11,
-              color: Color(0x8CF5EFD9),
+              fontSize: 9.sp,
+              color: const Color(0x73E8E4D0),
             ),
           ),
         ],
@@ -921,7 +1132,10 @@ class _StatusGroup extends StatelessWidget {
       return i < children.length - 1
           ? Row(
               mainAxisSize: MainAxisSize.min,
-              children: [w, const SizedBox(width: 5)],
+              children: [
+                w,
+                SizedBox(width: 0.6.w),
+              ],
             )
           : w;
     }).toList(),
@@ -934,16 +1148,16 @@ class _StatusDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    width: 6,
-    height: 6,
+    width: 0.7.h,
+    height: 0.7.h,
     decoration: BoxDecoration(
       shape: BoxShape.circle,
       color: color,
       boxShadow: [
         BoxShadow(
-          color: color.withOpacity(0.5),
-          blurRadius: 4,
-          spreadRadius: 1,
+          color: color.withOpacity(0.6),
+          blurRadius: 0.5.h,
+          spreadRadius: 0.15.h,
         ),
       ],
     ),
@@ -953,15 +1167,15 @@ class _StatusDot extends StatelessWidget {
 class _StatusSep extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
-    width: 1,
-    height: 11,
-    margin: const EdgeInsets.symmetric(horizontal: 10),
-    color: const Color(0x3CC49A4A),
+    width: 0.08.w,
+    height: 1.2.h,
+    margin: EdgeInsets.symmetric(horizontal: 1.w),
+    color: D.gold400.withOpacity(0.12),
   );
 }
 
 // ─────────────────────────────────────────────────
-//  LICENSE BANNER
+//  LICENSE BANNER — Warm warning tone
 // ─────────────────────────────────────────────────
 class _LicenseBanner extends StatelessWidget {
   final String message;
@@ -969,44 +1183,50 @@ class _LicenseBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 7),
-    color: D.warning50,
+    padding: EdgeInsets.symmetric(horizontal: 2.w, vertical: 0.7.h),
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(
+        colors: [Color(0xFF3D2E0A), Color(0xFF2A1F06)],
+      ),
+      border: Border(
+        bottom: BorderSide(color: D.warning500.withOpacity(0.3), width: 0.1.h),
+      ),
+    ),
     child: Row(
       children: [
-        const Icon(Icons.warning_amber_rounded, color: D.warning500, size: 15),
-        const SizedBox(width: 8),
+        Icon(Icons.warning_amber_rounded, color: D.warning500, size: 13.sp),
+        SizedBox(width: 0.8.w),
         Expanded(
           child: Text(
             message,
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 12,
-              color: D.warning700,
+            style: TextStyle(
+              fontFamily: 'Cabinet Grotesk',
+              fontSize: 10.5.sp,
+              fontWeight: FontWeight.w500,
+              color: const Color(0xFFE8D5A3),
             ),
           ),
         ),
         TextButton(
           onPressed: () => context.go('/license?reason=renew'),
           style: TextButton.styleFrom(
-            foregroundColor: D.warning700,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            minimumSize: const Size(0, 28),
-          ),
-          child: const Text(
-            'Renew',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
+            foregroundColor: D.warning500,
+            padding: EdgeInsets.symmetric(horizontal: 1.2.w),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            textStyle: TextStyle(
+              fontFamily: 'Cabinet Grotesk',
+              fontSize: 10.5.sp,
+              fontWeight: FontWeight.w800,
             ),
           ),
+          child: const Text('Renew'),
         ),
       ],
     ),
   );
 }
 
-// Extension to get moduleIcon on BusinessType
 extension BusinessTypeIconX on BusinessType {
   IconData? get moduleIcon => switch (this) {
     BusinessType.medical => Icons.local_hospital_rounded,
