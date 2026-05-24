@@ -214,144 +214,6 @@
 
 ---
 
-## 🗃️ Database — 19 Tables
-
-```
-📁 is_accounting.db (SQLite — on device)
-│
-├── 🔐 LICENSING
-│   ├── device_licenses          ← activated devices + expiry
-│
-├── 🏢 BUSINESS CORE
-│   ├── tenants                  ← one row per business
-│   ├── branches                 ← one row per shop/location
-│   └── user_profiles            ← staff with roles
-│
-├── 📦 PRODUCTS & STOCK
-│   ├── product_categories       ← hierarchical categories
-│   ├── products                 ← catalog with PCT codes
-│   └── inventory                ← qty_on_hand per branch
-│
-├── 🧾 SALES & FINANCE
-│   ├── customers                ← CNIC/NTN + Udhaar balance
-│   ├── invoices                 ← FBR status, USIN, QR
-│   ├── invoice_items            ← line items with tax
-│   ├── vendors                  ← suppliers (Phase 2)
-│   ├── purchase_orders          ← POs (Phase 2)
-│   └── purchase_order_items     ← PO lines (Phase 2)
-│
-├── 📒 ACCOUNTING
-│   ├── accounts                 ← Pakistan standard COA
-│   ├── journal_entries          ← double-entry headers
-│   └── journal_lines            ← debit / credit lines
-│
-└── 🔄 SYNC ENGINE
-    ├── outbox_queue             ← pending cloud writes
-    └── sync_watermarks          ← last pull timestamps
-```
-
-> **Same schema in Supabase PostgreSQL** — run `supabase/rls_setup.sql` to create cloud tables.
-
-<br/>
-
----
-
-## 🔐 Multi-Tenancy — How It Works
-
-One Supabase project serves **unlimited businesses**, fully isolated:
-
-```
-Ahmed Traders  (tenant_id: ahmed-traders)  ──▶ ┐
-Al-Shifa Pharma (tenant_id: alshifa-pharma) ──▶ ├──▶ Same DB
-Karahi House   (tenant_id: karahi-house)   ──▶ ┘     RLS makes
-                                                      them invisible
-                                                      to each other
-```
-
-PostgreSQL RLS automatically filters every query by `tenant_id` from the JWT token. No cross-tenant data leak is possible, even with the API key.
-
-**Roles:** `owner` → `manager` → `cashier` → `accountant` → `viewer`
-
-<br/>
-
----
-
-## ⚡ Quick Start
-
-**1. Clone**
-```bash
-git clone https://github.com/YOUR_USERNAME/is_accounting.git
-cd is_accounting
-```
-
-**2. Set Supabase credentials** in `lib/core/constants/app_constants.dart`
-```dart
-static const supabaseUrl     = 'https://xxxx.supabase.co';
-static const supabaseAnonKey = 'eyJhbGc...';
-```
-
-**3. Run SQL** — paste `supabase/rls_setup.sql` into Supabase SQL Editor
-
-**4. Generate Drift code** ← required after any DB change
-```bash
-flutter pub get
-dart run build_runner build --delete-conflicting-outputs
-```
-
-**5. Run**
-```bash
-flutter run -d macos      # macOS
-flutter run -d windows    # Windows
-```
-
-<br/>
-
----
-
-## 📁 Project Structure
-
-```
-is_accounting/
-├── lib/
-│   ├── core/
-│   │   ├── constants/         app_constants.dart  ← Supabase config HERE
-│   │   ├── database/          app_database.dart   ← Drift schema (18 tables)
-│   │   ├── router/            app_router.dart     ← GoRouter + guards
-│   │   ├── theme/             app_theme.dart      ← Design system tokens
-│   │   ├── licensing/         license_service.dart
-│   │   ├── sync/              sync_engine.dart    ← Outbox pattern
-│   │   └── utils/             error_handler, formatters
-│   │
-│   ├── features/
-│   │   ├── auth/              license, login, setup wizard
-│   │   ├── dashboard/         KPIs, charts, recent invoices
-│   │   ├── pos/               keyboard-first POS terminal
-│   │   ├── inventory/         products + stock management
-│   │   ├── customers/         ledger + CNIC/NTN
-│   │   ├── purchase/          [Phase 2] vendors + GRN
-│   │   ├── accounts/          [Phase 2] GL + P&L
-│   │   ├── reports/           [Phase 2] FBR reports
-│   │   ├── settings/          business config + language
-│   │   └── fbr/               fiscalization service
-│   │
-│   └── shared/
-│       ├── providers/         Riverpod providers + cart state
-│       └── widgets/           shell, common UI, loading overlay
-│
-├── supabase/
-│   ├── rls_setup.sql          ← Run this in Supabase SQL Editor
-│   └── functions/
-│       ├── activate-license/  ← Deploy: supabase functions deploy
-│       └── check-license/     ← Deploy: supabase functions deploy
-│
-├── SETUP_GUIDE.md             ← Step-by-step first-run guide
-└── AI_CONTINUATION_SUMMARY.md ← Full context for AI pair-programming
-```
-
-<br/>
-
----
-
 ## 🎨 Design System
 
 UI built on the **Inover Studio ERP** design language:
@@ -371,29 +233,12 @@ UI built on the **Inover Studio ERP** design language:
 
 ---
 
-## 🐛 Known Issues & Fixes
-
-| Error | Cause | Fix |
-|---|---|---|
-| `Undefined name 'TenantsCompanion'` | build_runner not run | `dart run build_runner build` |
-| `Invalid path 404` on login | Supabase URL not set | Set real URL in `app_constants.dart` |
-| `permission denied for schema auth` | Old SQL tried to create auth functions | Use latest `rls_setup.sql` |
-| macOS build fails with apostrophe | `PP's` in folder path | Rename folder — remove apostrophe |
-| Login succeeds but no navigation | GoRouter stale state | Fixed in `app_router.dart` via `refreshListenable` |
-
-<br/>
-
----
-
 ## 📄 License
 
 ```
-MIT License — Copyright (c) 2026
+Inover Studio License — Copyright (c) 2026
 ```
 
-Free to use, modify, and distribute. Attribution appreciated.
-
----
 
 <div align="center">
 
