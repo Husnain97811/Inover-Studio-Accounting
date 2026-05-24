@@ -1,4 +1,5 @@
 // lib/core/database/app_database.dart
+
 // IMPORTANT: After adding this file, run:
 //   dart run build_runner build --delete-conflicting-outputs
 // This generates app_database.g.dart which is required for Drift.

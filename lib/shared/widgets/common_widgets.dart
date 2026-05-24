@@ -2,6 +2,7 @@
 // Design: Inover Studio ERP
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:sizer/sizer.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/constants/app_constants.dart';
@@ -13,75 +14,89 @@ import '../providers/app_providers.dart';
 class ErpCard extends StatelessWidget {
   final Widget child;
   final EdgeInsets? padding;
+  final double? width;
+  final double? height;
   final VoidCallback? onTap;
-  final bool goldRule; // top border accent
-  final bool goldCorner; // corner L-shape accent
-  final bool cream; // cream background variant
+  final bool goldRule;
+  final bool goldCorner;
+  final bool cream;
+  final bool expandChild; // NEW
 
   const ErpCard({
     super.key,
     required this.child,
     this.padding,
+    this.width,
+    this.height,
     this.onTap,
     this.goldRule = false,
     this.goldCorner = false,
     this.cream = false,
+    this.expandChild = false, // default false
   });
 
   @override
   Widget build(BuildContext context) {
-    Widget content = Padding(
-      padding: padding ?? const EdgeInsets.all(20),
-      child: child,
-    );
+    final effectivePadding = padding ?? EdgeInsets.all(2.h);
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+    Widget content = Padding(padding: effectivePadding, child: child);
+
+    // If expandChild is true, wrap in a Column with Expanded
+    if (expandChild) {
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [Expanded(child: content)],
+      );
+    }
+
+    Widget card = ClipRRect(
+      borderRadius: BorderRadius.circular(1.w),
       child: Container(
+        width: width,
+        height: height,
         decoration: BoxDecoration(
           color: cream ? D.bgCream : D.bgSurface,
-          border: Border.all(color: D.borderDefault), // uniform border
-          boxShadow: const [
+          border: Border.all(color: D.borderDefault),
+          boxShadow: [
             BoxShadow(
               color: Color(0x060A1A11),
-              offset: Offset(0, 1),
-              blurRadius: 2,
+              offset: Offset(0, 0.1.h),
+              blurRadius: 0.2.h,
             ),
             BoxShadow(
               color: Color(0x040A1A11),
-              offset: Offset(0, 1),
-              blurRadius: 1,
+              offset: Offset(0, 0.1.h),
+              blurRadius: 0.1.h,
             ),
           ],
         ),
         child: Stack(
           children: [
-            // Gold rule – drawn as a thin overlay, clipped to the rounded corners
             if (goldRule)
               Positioned(
                 top: 0,
                 left: 0,
                 right: 0,
-                child: Container(height: 2, color: D.gold400),
+                child: Container(height: 0.2.h, color: D.gold400),
               ),
             if (goldCorner) ...[
               Positioned(
                 top: 0,
                 left: 0,
-                child: Container(width: 28, height: 1, color: D.gold400),
+                child: Container(width: 2.8.w, height: 0.1.h, color: D.gold400),
               ),
               Positioned(
                 top: 0,
                 left: 0,
-                child: Container(width: 1, height: 28, color: D.gold400),
+                child: Container(width: 0.1.w, height: 2.8.h, color: D.gold400),
               ),
             ],
             if (onTap != null)
               Material(
                 color: Colors.transparent,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(1.w),
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(1.w),
                   onTap: onTap,
                   hoverColor: const Color(0x06C49A4A),
                   child: content,
@@ -93,6 +108,8 @@ class ErpCard extends StatelessWidget {
         ),
       ),
     );
+
+    return card;
   }
 }
 
@@ -127,88 +144,124 @@ class StatCard extends StatelessWidget {
       goldRule: !goldVariant,
       goldCorner: goldVariant,
       cream: goldVariant,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Label — eyebrow style
-          Text(
-            label.toUpperCase(),
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: D.gold500,
-              letterSpacing: 0.18,
-            ),
-          ),
-          const SizedBox(height: 6),
-          // Value — serif display
-          RichText(
-            text: TextSpan(
-              style: const TextStyle(
-                fontFamily: 'Instrument Serif',
-                fontSize: 42,
-                fontWeight: FontWeight.w400,
-                color: D.ink800,
-                height: 1.0,
-              ),
+      // Remove expandChild — let the card size itself naturally
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Scale everything relative to available width so nothing overflows
+          final w = constraints.maxWidth;
+          final valueSz = (w * 0.18).clamp(16.0, 38.0);
+          final labelSz = (w * 0.058).clamp(9.0, 12.0);
+          final currSz = (w * 0.065).clamp(9.0, 13.0);
+          final subSz = (w * 0.055).clamp(8.5, 11.0);
+          final deltaSz = (w * 0.058).clamp(9.0, 11.5);
+          final iconSz = (w * 0.060).clamp(9.0, 13.0);
+          final gap1 = (w * 0.03).clamp(3.0, 8.0); // after label
+          final gap2 = (w * 0.04).clamp(3.0, 8.0); // after delta/sub
+
+          final hasCurrency = value.startsWith('Rs.') || value.contains('PKR');
+          final displayVal = value
+              .replaceAll('Rs. ', '')
+              .replaceAll('PKR ', '');
+
+          return SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min, // ← shrink-wraps; no overflow
               children: [
-                if (value.startsWith('Rs.') || value.contains('PKR'))
-                  TextSpan(
-                    text: 'Rs. ',
-                    style: const TextStyle(
-                      fontFamily: 'JetBrains Mono',
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: D.gold600,
-                      letterSpacing: 0,
-                      height: 1.0,
-                    ),
-                  ),
-                TextSpan(
-                  text: value.replaceAll('Rs. ', '').replaceAll('PKR ', ''),
-                ),
-              ],
-            ),
-          ),
-          if (delta != null) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Icon(
-                  deltaUp
-                      ? Icons.arrow_upward_rounded
-                      : Icons.arrow_downward_rounded,
-                  size: 12,
-                  color: deltaUp ? D.brand600 : D.danger700,
-                ),
-                const SizedBox(width: 3),
+                // ── Eyebrow label ──────────────────────────────────────
                 Text(
-                  delta!,
+                  label.toUpperCase(),
                   style: TextStyle(
                     fontFamily: 'Inter',
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                    color: deltaUp ? D.brand600 : D.danger700,
+                    fontSize: labelSz,
+                    fontWeight: FontWeight.w700,
+                    color: D.gold500,
+                    letterSpacing: 0.18,
                   ),
                 ),
+                SizedBox(height: gap1),
+
+                // ── Value ──────────────────────────────────────────────
+                RichText(
+                  text: TextSpan(
+                    style: TextStyle(
+                      fontFamily: 'Instrument Serif',
+                      fontSize: valueSz,
+                      fontWeight: FontWeight.w400,
+                      color: D.ink800,
+                      height: 1.0,
+                    ),
+                    children: [
+                      // if (hasCurrency)
+                      //   TextSpan(
+                      //     text: 'Rs. ',
+                      //     style: TextStyle(
+                      //       fontFamily: 'JetBrains Mono',
+                      //       fontSize: currSz,
+                      //       fontWeight: FontWeight.w500,
+                      //       color: D.gold600,
+                      //       letterSpacing: 0,
+                      //       height: 1.0,
+                      //     ),
+                      //   ),
+                      TextSpan(text: displayVal),
+                    ],
+                  ),
+                ),
+
+                // ── Delta ──────────────────────────────────────────────
+                if (delta != null) ...[
+                  SizedBox(height: gap1),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        deltaUp
+                            ? Icons.arrow_upward_rounded
+                            : Icons.arrow_downward_rounded,
+                        size: iconSz,
+                        color: deltaUp ? D.brand600 : D.danger700,
+                      ),
+                      SizedBox(width: w * 0.02),
+                      Flexible(
+                        child: Text(
+                          delta!,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: deltaSz,
+                            fontWeight: FontWeight.w600,
+                            color: deltaUp ? D.brand600 : D.danger700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+
+                // ── Sub-label ──────────────────────────────────────────
+                if (sub != null) ...[
+                  SizedBox(height: gap1 * 0.6),
+                  Text(
+                    sub!,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: subSz,
+                      color: D.fgTertiary,
+                    ),
+                  ),
+                ],
+
+                // ── Spark line ─────────────────────────────────────────
+                if (spark != null) ...[SizedBox(height: gap2), spark!],
+
+                // ── Extra badge / widget ───────────────────────────────
+                if (extra != null) ...[SizedBox(height: gap1), extra!],
               ],
             ),
-          ],
-          if (sub != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              sub!,
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 11,
-                color: D.fgTertiary,
-              ),
-            ),
-          ],
-          if (spark != null) spark!,
-          if (extra != null) ...[const SizedBox(height: 6), extra!],
-        ],
+          );
+        },
       ),
     );
   }

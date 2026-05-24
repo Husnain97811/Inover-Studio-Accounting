@@ -7,6 +7,8 @@ class AppConstants {
   static const appVersion = '1.0.0';
   // ─── CHANGE THESE in lib/core/constants/app_constants.dart ───
   // Get from: https://app.supabase.com → Your Project → Settings → API
+  // In AppConstants class, add alongside other key constants:
+  static const keyFbrToken = 'fbr_token';
   static const supabaseUrl = 'https://arednahdmuguxvwyvhua.supabase.co';
   static const supabaseAnonKey =
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFyZWRuYWhkbXVndXh2d3l2aHVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyNjM0NTcsImV4cCI6MjA5NDgzOTQ1N30.K0cyNueCqI58I8I1_MriXLIpOOGXuzYPKS8Q9Xg5JeY';

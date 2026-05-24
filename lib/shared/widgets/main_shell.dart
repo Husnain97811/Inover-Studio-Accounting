@@ -205,7 +205,7 @@ class _Topbar extends ConsumerWidget {
                         style: TextStyle(
                           fontFamily: 'Cabinet Grotesk',
                           fontSize: 10.5.sp,
-                          color: D.fgTertiary.withOpacity(0.45),
+                          color: D.brand50,
                         ),
                       ),
                     ),
@@ -979,7 +979,7 @@ class _SidebarFooter extends StatelessWidget {
             child: Icon(
               Icons.settings_rounded,
               size: 15.sp,
-              color: D.gold400.withOpacity(0.35),
+              color: D.bgSurface,
             ),
           ),
         ),
