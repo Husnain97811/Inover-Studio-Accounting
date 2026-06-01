@@ -13,6 +13,24 @@ import '../../../core/utils/error_handler.dart';
 import '../widgets/payment_dialog.dart';
 import '../widgets/product_search_field.dart';
 
+// ── Isolated provider so the product grid never rebuilds ──
+// due to cart changes, search text changes, or sync ticks.
+// It only rebuilds when the DB stream emits new products.
+final _posProductsProvider = StreamProvider.autoDispose
+    .family<List<Product>, String>((ref, tenantId) {
+      final db = ref.watch(databaseProvider);
+      return (db.select(db.products)
+            ..where(
+              (t) =>
+                  t.tenantId.equals(tenantId) &
+                  t.isActive.equals(true) &
+                  t.isDeleted.equals(false),
+            )
+            ..orderBy([(t) => OrderingTerm.asc(t.name)])
+            ..limit(40))
+          .watch();
+    });
+
 class PosScreen extends ConsumerStatefulWidget {
   const PosScreen({super.key});
   @override
@@ -115,6 +133,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         const uuid = Uuid();
         final invId = uuid.v4();
         final now = DateTime.now();
+
         final cnt = await db
             .customSelect(
               'SELECT COUNT(*) as c FROM invoices WHERE tenant_id = ?',
@@ -149,6 +168,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                   updatedAt: Value(now.millisecondsSinceEpoch),
                 ),
               );
+
           int order = 0;
           for (final item in cart.items) {
             await db
@@ -206,6 +226,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Only watch what the POS chrome needs — cart is passed to _Cart
     final cart = ref.watch(cartProvider);
     final bizType = ref.watch(businessTypeProvider);
     final tenantId = ref.watch(currentTenantIdProvider);
@@ -217,143 +238,27 @@ class _PosScreenState extends ConsumerState<PosScreen> {
         backgroundColor: Colors.transparent,
         body: Column(
           children: [
-            // POS topbar
             _PosHeader(bizType: bizType),
-
             Expanded(
               child: Row(
                 children: [
-                  // Left — product search + grid
+                  // Left — search + product grid
+                  // _PosLeft is a separate StatefulWidget so its own
+                  // local search state never triggers a cart rebuild
                   Expanded(
-                    child: Column(
-                      children: [
-                        // Search bar row
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          color: D.bgSurface,
-                          child: Column(
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: ProductSearchField(
-                                      controller: _searchCtrl,
-                                      focusNode: _searchFocus,
-                                      tenantId: tenantId,
-                                      onSelected: _addProduct,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  OutlinedButton.icon(
-                                    onPressed: () {},
-                                    icon: const Icon(
-                                      Icons.barcode_reader,
-                                      size: 14,
-                                    ),
-                                    label: const Text('Scan'),
-                                    style: OutlinedButton.styleFrom(
-                                      minimumSize: const Size(0, 32),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  OutlinedButton.icon(
-                                    onPressed: () {},
-                                    icon: const Icon(
-                                      Icons.person_add_outlined,
-                                      size: 14,
-                                    ),
-                                    label: Row(
-                                      children: [
-                                        const Text('Customer'),
-                                        const SizedBox(width: 6),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 4,
-                                            vertical: 1,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            border: Border.all(
-                                              color: D.borderDefault,
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              3,
-                                            ),
-                                          ),
-                                          child: const Text(
-                                            'F2',
-                                            style: TextStyle(
-                                              fontFamily: 'JetBrains Mono',
-                                              fontSize: 10,
-                                              color: D.fgSecondary,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    style: OutlinedButton.styleFrom(
-                                      minimumSize: const Size(0, 32),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              // Category quick filters
-                              const SizedBox(height: 10),
-                              SizedBox(
-                                height: 22,
-                                child: Row(
-                                  children: [
-                                    const Text(
-                                      'Quick:',
-                                      style: TextStyle(
-                                        fontFamily: 'Inter',
-                                        fontSize: 12,
-                                        color: D.fgTertiary,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    ..._categories(bizType).map(
-                                      (c) => Padding(
-                                        padding: const EdgeInsets.only(
-                                          right: 6,
-                                        ),
-                                        child: StatusBadge.neutral(c),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Divider(height: 1, color: D.borderDefault),
-
-                        // Product grid
-                        Expanded(
-                          child: Container(
-                            color: D.bgApp,
-                            child: _ProductGrid(
-                              tenantId: tenantId,
-                              onTap: _addProduct,
-                            ),
-                          ),
-                        ),
-                      ],
+                    child: _PosLeft(
+                      tenantId: tenantId,
+                      bizType: bizType,
+                      searchCtrl: _searchCtrl,
+                      searchFocus: _searchFocus,
+                      onAdd: _addProduct,
                     ),
                   ),
-
-                  // Right — cart panel
-                  Container(
+                  // Right — cart
+                  // Watches cartProvider internally so only this widget
+                  // rebuilds on cart changes
+                  SizedBox(
                     width: 380,
-                    decoration: const BoxDecoration(
-                      color: D.bgSurface,
-                      border: Border(left: BorderSide(color: D.borderDefault)),
-                    ),
                     child: _Cart(
                       cart: cart,
                       selIdx: _selIdx,
@@ -365,8 +270,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                 ],
               ),
             ),
-
-            // Keyboard shortcuts bar
             ShortcutBar(
               shortcuts: const [
                 ('F1', 'Search'),
@@ -383,6 +286,132 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       ),
     );
   }
+}
+
+// ── Left panel owns only its own search state ─────────────
+// Cart changes, sync ticks, locale changes → never rebuild this.
+class _PosLeft extends ConsumerStatefulWidget {
+  final String tenantId;
+  final BusinessType bizType;
+  final TextEditingController searchCtrl;
+  final FocusNode searchFocus;
+  final void Function(Product, double) onAdd;
+
+  const _PosLeft({
+    required this.tenantId,
+    required this.bizType,
+    required this.searchCtrl,
+    required this.searchFocus,
+    required this.onAdd,
+  });
+
+  @override
+  ConsumerState<_PosLeft> createState() => _PosLeftState();
+}
+
+class _PosLeftState extends ConsumerState<_PosLeft> {
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          color: D.bgSurface,
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: ProductSearchField(
+                      controller: widget.searchCtrl,
+                      focusNode: widget.searchFocus,
+                      tenantId: widget.tenantId,
+                      onSelected: widget.onAdd,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: () {},
+                    icon: const Icon(Icons.barcode_reader, size: 14),
+                    label: const Text('Scan'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 32),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: () {},
+                    icon: const Icon(Icons.person_add_outlined, size: 14),
+                    label: Row(
+                      children: [
+                        const Text('Customer'),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: D.borderDefault),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: const Text(
+                            'F2',
+                            style: TextStyle(
+                              fontFamily: 'JetBrains Mono',
+                              fontSize: 10,
+                              color: D.fgSecondary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 32),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 22,
+                child: Row(
+                  children: [
+                    const Text(
+                      'Quick:',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        color: D.fgTertiary,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ..._categories(widget.bizType).map(
+                      (c) => Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: StatusBadge.neutral(c),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1, color: D.borderDefault),
+        Expanded(
+          child: Container(
+            color: D.bgApp,
+            // _ProductGrid watches its own isolated stream provider.
+            // It only rebuilds when DB products change — never on cart changes.
+            child: _ProductGrid(tenantId: widget.tenantId, onTap: widget.onAdd),
+          ),
+        ),
+      ],
+    );
+  }
 
   List<String> _categories(BusinessType bt) => switch (bt) {
     BusinessType.medical => ['Antibiotics', 'OTC', 'Vitamins', 'BP/Cardiac'],
@@ -392,6 +421,124 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   };
 }
 
+// ── Product grid — watches isolated StreamProvider ───────
+class _ProductGrid extends ConsumerWidget {
+  final String tenantId;
+  final void Function(Product, double) onTap;
+  const _ProductGrid({required this.tenantId, required this.onTap});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final products = ref.watch(_posProductsProvider(tenantId));
+    return products.when(
+      loading: () =>
+          const Center(child: CircularProgressIndicator(color: D.gold400)),
+      error: (e, _) => Center(child: Text('Error: $e')),
+      data: (list) {
+        if (list.isEmpty) {
+          return EmptyState(
+            icon: Icons.inventory_2_outlined,
+            title: 'No Products',
+            message: 'Add products from Inventory to start selling.',
+          );
+        }
+        return GridView.builder(
+          padding: const EdgeInsets.all(16),
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 155,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.05,
+          ),
+          itemCount: list.length,
+          itemBuilder: (_, i) =>
+              _ProductTile(p: list[i], onTap: () => onTap(list[i], 1.0)),
+        );
+      },
+    );
+  }
+}
+
+// ── Product tile — pure StatelessWidget, const-safe ──────
+class _ProductTile extends StatelessWidget {
+  final Product p;
+  final VoidCallback onTap;
+  const _ProductTile({required this.p, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: D.bgSurface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: D.borderDefault),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x040A1A11),
+              offset: Offset(0, 1),
+              blurRadius: 2,
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  color: D.neutral100,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(7)),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  p.sku ?? p.name.substring(0, 2).toUpperCase(),
+                  style: const TextStyle(
+                    fontFamily: 'JetBrains Mono',
+                    fontSize: 10,
+                    color: D.fgTertiary,
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    p.name,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                      color: D.fgPrimary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Rs. ${Fmt.pkrShort(p.salePrice)}',
+                    style: const TextStyle(
+                      fontFamily: 'JetBrains Mono',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: D.brand700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── POS header ────────────────────────────────────────────
 class _PosHeader extends StatelessWidget {
   final BusinessType bizType;
   const _PosHeader({required this.bizType});
@@ -436,7 +583,6 @@ class _PosHeader extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          // FBR indicator
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
@@ -475,134 +621,7 @@ class _PosHeader extends StatelessWidget {
   }
 }
 
-class _ProductGrid extends ConsumerWidget {
-  final String tenantId;
-  final void Function(Product, double) onTap;
-  const _ProductGrid({required this.tenantId, required this.onTap});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final db = ref.watch(databaseProvider);
-    return StreamBuilder<List<Product>>(
-      stream:
-          (db.select(db.products)
-                ..where(
-                  (t) =>
-                      t.tenantId.equals(tenantId) &
-                      t.isActive.equals(true) &
-                      t.isDeleted.equals(false),
-                )
-                ..orderBy([(t) => OrderingTerm.asc(t.name)])
-                ..limit(40))
-              .watch(),
-      builder: (_, snap) {
-        final products = snap.data ?? [];
-        if (products.isEmpty) {
-          return EmptyState(
-            icon: Icons.inventory_2_outlined,
-            title: 'No Products',
-            message: 'Add products from Inventory to start selling.',
-          );
-        }
-        return GridView.builder(
-          padding: const EdgeInsets.all(16),
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 155,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: 1.05,
-          ),
-          itemCount: products.length,
-          itemBuilder: (_, i) => _ProductTile(
-            p: products[i],
-            onTap: () => onTap(products[i], 1.0),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _ProductTile extends StatelessWidget {
-  final Product p;
-  final VoidCallback onTap;
-  const _ProductTile({required this.p, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: D.bgSurface,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: D.borderDefault),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x040A1A11),
-              offset: Offset(0, 1),
-              blurRadius: 2,
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            // Thumbnail area
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: const BoxDecoration(
-                  color: D.neutral100,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(7)),
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  p.sku ?? p.name.substring(0, 2).toUpperCase(),
-                  style: const TextStyle(
-                    fontFamily: 'JetBrains Mono',
-                    fontSize: 10,
-                    color: D.fgTertiary,
-                  ),
-                ),
-              ),
-            ),
-            // Info
-            Padding(
-              padding: const EdgeInsets.all(10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    p.name,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w500,
-                      color: D.fgPrimary,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Rs. ${Fmt.pkrShort(p.salePrice)}',
-                    style: const TextStyle(
-                      fontFamily: 'JetBrains Mono',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: D.brand700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
+// ── Cart ──────────────────────────────────────────────────
 class _Cart extends ConsumerWidget {
   final CartState cart;
   final int? selIdx;
@@ -620,204 +639,197 @@ class _Cart extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Column(
-      children: [
-        // Cart header
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-          child: Row(
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Current sale',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: D.fgPrimary,
+    return Container(
+      decoration: const BoxDecoration(
+        color: D.bgSurface,
+        border: Border(left: BorderSide(color: D.borderDefault)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+            child: Row(
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Current sale',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: D.fgPrimary,
+                      ),
                     ),
-                  ),
-                  Text(
-                    'draft · ${cart.items.length} items',
-                    style: const TextStyle(
-                      fontFamily: 'JetBrains Mono',
-                      fontSize: 11,
-                      color: D.fgTertiary,
+                    Text(
+                      'draft · ${cart.items.length} items',
+                      style: const TextStyle(
+                        fontFamily: 'JetBrains Mono',
+                        fontSize: 11,
+                        color: D.fgTertiary,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              if (!cart.isEmpty)
-                TextButton.icon(
-                  onPressed: onClear,
-                  icon: const Icon(Icons.delete_outline_rounded, size: 14),
-                  label: const Text('Clear'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: D.danger500,
-                    minimumSize: const Size(0, 28),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                  ),
+                  ],
                 ),
-            ],
+                const Spacer(),
+                if (!cart.isEmpty)
+                  TextButton.icon(
+                    onPressed: onClear,
+                    icon: const Icon(Icons.delete_outline_rounded, size: 14),
+                    label: const Text('Clear'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: D.danger500,
+                      minimumSize: const Size(0, 28),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ),
-        const Divider(height: 1, color: D.borderDefault),
-
-        // Cart items
-        Expanded(
-          child: cart.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: D.neutral100,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
+          const Divider(height: 1, color: D.borderDefault),
+          Expanded(
+            child: cart.isEmpty
+                ? const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
                           Icons.shopping_cart_outlined,
                           size: 24,
                           color: D.fgTertiary,
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        'Cart is empty.',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 13,
-                          color: D.fgTertiary,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        'Scan or click a product to add.',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 12,
-                          color: D.fgTertiary,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  itemCount: cart.items.length,
-                  itemBuilder: (_, i) => _CartLine(
-                    item: cart.items[i],
-                    index: i,
-                    selected: selIdx == i,
-                    onTap: () => onSelect(i),
-                  ),
-                ),
-        ),
-
-        // Summary
-        if (!cart.isEmpty) ...[
-          const Divider(height: 1, color: D.borderDefault),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                _SumRow('Subtotal', 'Rs. ${Fmt.pkrShort(cart.subtotal)}'),
-                if (cart.totalDiscount > 0)
-                  _SumRow(
-                    'Discount',
-                    '− Rs. ${Fmt.pkrShort(cart.totalDiscount)}',
-                    color: D.danger500,
-                  ),
-                _SumRow('GST (17%)', 'Rs. ${Fmt.pkrShort(cart.totalTax)}'),
-                const SizedBox(height: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  decoration: const BoxDecoration(
-                    border: Border.symmetric(
-                      horizontal: BorderSide(color: D.borderDefault),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Total',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                          color: D.fgPrimary,
-                        ),
-                      ),
-                      Text(
-                        'Rs. ${Fmt.pkrShort(cart.totalWithTax)}',
-                        style: const TextStyle(
-                          fontFamily: 'JetBrains Mono',
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                          color: D.fgPrimary,
-                          fontFeatures: [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // Pay button
-                SizedBox(
-                  width: double.infinity,
-                  height: 40,
-                  child: ElevatedButton(
-                    onPressed: onPay,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: D.brand500,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      elevation: 0,
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text(
-                          'Checkout',
+                        SizedBox(height: 10),
+                        Text(
+                          'Cart is empty.',
                           style: TextStyle(
                             fontFamily: 'Inter',
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            color: D.fgTertiary,
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
+                        SizedBox(height: 4),
+                        Text(
+                          'Scan or click a product to add.',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            color: D.fgTertiary,
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(3),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: cart.items.length,
+                    itemBuilder: (_, i) => _CartLine(
+                      item: cart.items[i],
+                      index: i,
+                      selected: selIdx == i,
+                      onTap: () => onSelect(i),
+                    ),
+                  ),
+          ),
+          if (!cart.isEmpty) ...[
+            const Divider(height: 1, color: D.borderDefault),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  _SumRow('Subtotal', 'Rs. ${Fmt.pkrShort(cart.subtotal)}'),
+                  if (cart.totalDiscount > 0)
+                    _SumRow(
+                      'Discount',
+                      '− Rs. ${Fmt.pkrShort(cart.totalDiscount)}',
+                      color: D.danger500,
+                    ),
+                  _SumRow('GST (17%)', 'Rs. ${Fmt.pkrShort(cart.totalTax)}'),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: const BoxDecoration(
+                      border: Border.symmetric(
+                        horizontal: BorderSide(color: D.borderDefault),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Total',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                            color: D.fgPrimary,
                           ),
-                          child: const Text(
-                            'F10',
-                            style: TextStyle(
-                              fontFamily: 'JetBrains Mono',
-                              fontSize: 11,
-                            ),
+                        ),
+                        Text(
+                          'Rs. ${Fmt.pkrShort(cart.totalWithTax)}',
+                          style: const TextStyle(
+                            fontFamily: 'JetBrains Mono',
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                            color: D.fgPrimary,
+                            fontFeatures: [FontFeature.tabularFigures()],
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 40,
+                    child: ElevatedButton(
+                      onPressed: onPay,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: D.brand500,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text(
+                            'Checkout',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: const Text(
+                              'F10',
+                              style: TextStyle(
+                                fontFamily: 'JetBrains Mono',
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
         ],
-      ],
+      ),
     );
   }
 }
@@ -845,7 +857,6 @@ class _CartLine extends ConsumerWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
-            // Name
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -872,7 +883,6 @@ class _CartLine extends ConsumerWidget {
                 ],
               ),
             ),
-            // Qty stepper
             Row(
               children: [
                 _QBtn(
@@ -899,7 +909,6 @@ class _CartLine extends ConsumerWidget {
                 ),
               ],
             ),
-            // Total
             SizedBox(
               width: 68,
               child: Text(
@@ -943,8 +952,7 @@ class _QBtn extends StatelessWidget {
 }
 
 class _SumRow extends StatelessWidget {
-  final String label;
-  final String value;
+  final String label, value;
   final Color? color;
   const _SumRow(this.label, this.value, {this.color});
 

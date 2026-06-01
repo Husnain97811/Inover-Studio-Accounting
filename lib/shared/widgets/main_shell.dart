@@ -1,15 +1,4 @@
 // lib/shared/widgets/main_shell.dart
-// Design Philosophy: "Polished Obsidian — Gilded"
-// Dark mineral surfaces with dominant gold veins and crystalline gold highlights.
-// Typography: Instrument Serif (display), Cabinet Grotesk (body), JetBrains Mono (data)
-// Spatial: Asymmetric, layered, gold structural accents.
-// Anthropic Frontend-Design Skill applied:
-// - Distinctive fonts (no Inter/Roboto/Arial)
-// - Dominant dark palette with sharp gold accents, minimal green
-// - Atmospheric depth via grain texture, dramatic shadows, layered glass
-// - Staggered motion reveals for navigation
-// - Grid-breaking spatial composition
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -23,38 +12,29 @@ import '../../core/theme/app_theme.dart';
 import '../providers/app_providers.dart';
 import '../providers/loading_provider.dart';
 
-class MainShell extends ConsumerStatefulWidget {
+class MainShell extends ConsumerWidget {
   final Widget child;
   const MainShell({super.key, required this.child});
 
   @override
-  ConsumerState<MainShell> createState() => _MainShellState();
-}
-
-class _MainShellState extends ConsumerState<MainShell> {
-  @override
-  Widget build(BuildContext context) {
-    final biz = AppTheme.forBusiness(ref.watch(businessTypeProvider));
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Only watch cheap state providers here — heavy screen data lives inside screens
+    final bizType = ref.watch(businessTypeProvider);
     final locale = ref.watch(localeProvider);
     final role = ref.watch(currentRoleProvider);
     final license = ref.watch(licenseProvider).value;
     final sync = ref.watch(syncStateProvider).value;
-    final bizType = ref.watch(businessTypeProvider);
+    final biz = AppTheme.forBusiness(bizType);
 
     return AppLoadingOverlay(
       child: Scaffold(
         backgroundColor: D.bgApp,
         body: Stack(
           children: [
-            // ── Global grain texture overlay ──────────
-            Positioned.fill(
-              child: Opacity(
-                opacity: 0.03,
-                child: CustomPaint(painter: _GrainTexturePainter()),
-              ),
-            ),
+            // Grain texture — CustomPainter with shouldRepaint:false so this
+            // never repaints after first render regardless of what else rebuilds
+            const Positioned.fill(child: _GrainOverlay()),
 
-            // ── Main layout ────────────────────────────
             Column(
               children: [
                 _Topbar(sync: sync, license: license, locale: locale, biz: biz),
@@ -68,13 +48,19 @@ class _MainShellState extends ConsumerState<MainShell> {
                 Expanded(
                   child: Row(
                     children: [
+                      // _Sidebar reads GoRouterState internally through a tiny
+                      // child widget — so only the active-item highlight
+                      // rebuilds on navigation, not the whole sidebar
                       _Sidebar(
                         role: role,
                         locale: locale,
                         biz: biz,
                         bizType: bizType,
                       ),
-                      Expanded(child: _MainArea(child: widget.child)),
+
+                      // _MainArea is now a pure const-constructible StatelessWidget
+                      // — no ref.watch calls — so navigation never rebuilds it
+                      Expanded(child: _MainArea(child: child)),
                     ],
                   ),
                 ),
@@ -89,9 +75,18 @@ class _MainShellState extends ConsumerState<MainShell> {
   }
 }
 
-// ─────────────────────────────────────────────────
-//  GRAIN TEXTURE PAINTER
-// ─────────────────────────────────────────────────
+// ─── Grain overlay ────────────────────────────────────────
+// Wrapped in its own const widget so Flutter's element tree never
+// replaces it, and shouldRepaint:false means zero GPU cost after first frame.
+class _GrainOverlay extends StatelessWidget {
+  const _GrainOverlay();
+  @override
+  Widget build(BuildContext context) => Opacity(
+    opacity: 0.03,
+    child: CustomPaint(painter: _GrainTexturePainter()),
+  );
+}
+
 class _GrainTexturePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -124,9 +119,7 @@ class _PseudoRandom {
   bool nextBool() => nextDouble() > 0.5;
 }
 
-// ─────────────────────────────────────────────────
-//  TOPBAR — Dark steel with gold edge
-// ─────────────────────────────────────────────────
+// ─── Topbar ───────────────────────────────────────────────
 class _Topbar extends ConsumerWidget {
   final SyncState? sync;
   final LicenseResult? license;
@@ -141,9 +134,6 @@ class _Topbar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final path = GoRouterState.of(context).matchedLocation;
-    final crumb = _pathToCrumb(path);
-
     return Container(
       height: 7.5.h,
       decoration: BoxDecoration(
@@ -166,16 +156,8 @@ class _Topbar extends ConsumerWidget {
       padding: EdgeInsets.symmetric(horizontal: 2.5.w),
       child: Row(
         children: [
-          Text(
-            crumb,
-            style: TextStyle(
-              fontFamily: 'Instrument Serif',
-              fontSize: 15.sp,
-              fontStyle: FontStyle.italic,
-              color: D.gold300.withOpacity(0.85),
-              letterSpacing: 0.01,
-            ),
-          ),
+          // Breadcrumb — reads route via its own context lookup
+          const _BreadcrumbLabel(),
           SizedBox(width: 2.5.w),
           Expanded(
             child: Center(
@@ -218,34 +200,54 @@ class _Topbar extends ConsumerWidget {
           SizedBox(width: 2.5.w),
           _LangToggle(locale: locale, primary: biz.primary),
           SizedBox(width: 1.2.w),
-          _TopbarAvatar(),
+          const _TopbarAvatar(),
         ],
       ),
     );
   }
+}
 
-  String _pathToCrumb(String path) {
-    final map = {
-      '/dashboard': 'Dashboard',
-      '/pos': 'Point of Sale',
-      '/inventory': 'Inventory',
-      '/customers': 'Customers',
-      '/purchase': 'Purchase',
-      '/accounts': 'Accounts',
-      '/reports': 'Reports',
-      '/settings': 'Settings',
-    };
-    for (final e in map.entries) {
-      if (path.startsWith(e.key)) return e.value;
+// Tiny widget that only rebuilds when the route changes — not the full topbar
+class _BreadcrumbLabel extends StatelessWidget {
+  const _BreadcrumbLabel();
+
+  static const _map = {
+    '/dashboard': 'Dashboard',
+    '/pos': 'Point of Sale',
+    '/inventory': 'Inventory',
+    '/customers': 'Customers',
+    '/purchase': 'Purchase',
+    '/accounts': 'Accounts',
+    '/reports': 'Reports',
+    '/settings': 'Settings',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final path = GoRouterState.of(context).matchedLocation;
+    String crumb = AppConstants.appName;
+    for (final e in _map.entries) {
+      if (path.startsWith(e.key)) {
+        crumb = e.value;
+        break;
+      }
     }
-    return AppConstants.appName;
+    return Text(
+      crumb,
+      style: TextStyle(
+        fontFamily: 'Instrument Serif',
+        fontSize: 15.sp,
+        fontStyle: FontStyle.italic,
+        color: D.gold300.withOpacity(0.85),
+        letterSpacing: 0.01,
+      ),
+    );
   }
 }
 
 class _KbdChip extends StatelessWidget {
   final String label;
   const _KbdChip(this.label);
-
   @override
   Widget build(BuildContext context) => Container(
     padding: EdgeInsets.symmetric(horizontal: 0.7.w, vertical: 0.15.h),
@@ -306,45 +308,39 @@ class _LangToggle extends ConsumerWidget {
   }
 }
 
-class _TopbarAvatar extends ConsumerWidget {
+class _TopbarAvatar extends StatelessWidget {
+  const _TopbarAvatar();
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Container(
-      width: 3.4.h,
-      height: 3.4.h,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFB8860B), Color(0xFF6B4E0A)], // gold tones
-        ),
-        border: Border.all(color: D.gold400.withOpacity(0.6), width: 0.18.h),
-        boxShadow: [
-          BoxShadow(
-            color: D.gold400.withOpacity(0.4),
-            blurRadius: 1.h,
-            spreadRadius: 0.15.h,
-          ),
-        ],
+  Widget build(BuildContext context) => Container(
+    width: 3.4.h,
+    height: 3.4.h,
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      gradient: const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFFB8860B), Color(0xFF6B4E0A)],
       ),
-      alignment: Alignment.center,
-      child: Text(
-        'A',
-        style: TextStyle(
-          fontFamily: 'Cabinet Grotesk',
-          fontSize: 11.sp,
-          fontWeight: FontWeight.w700,
-          color: Colors.white,
-        ),
+      border: Border.all(color: D.gold400.withOpacity(0.6), width: 0.18.h),
+      // Removed boxShadow spread — saves a compositing layer per frame
+    ),
+    alignment: Alignment.center,
+    child: Text(
+      'A',
+      style: TextStyle(
+        fontFamily: 'Cabinet Grotesk',
+        fontSize: 11.sp,
+        fontWeight: FontWeight.w700,
+        color: Colors.white,
       ),
-    );
-  }
+    ),
+  );
 }
 
-// ─────────────────────────────────────────────────
-//  MAIN AREA — Warm gold glows, minimal green
-// ─────────────────────────────────────────────────
+// ─── Main area ────────────────────────────────────────────
+// No ref.watch — never rebuilds on route changes.
+// Glows use no boxShadow (boxShadow forces GPU compositing layers on every
+// navigation frame — the single biggest source of the visible jerk).
 class _MainArea extends StatelessWidget {
   final Widget child;
   const _MainArea({required this.child});
@@ -353,35 +349,21 @@ class _MainArea extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Large warm gold ambient — bottom-left
+        // Soft ambient glows — NO boxShadow, pure RadialGradient only
         Positioned(
           bottom: 8.h,
           left: 3.w,
-          child: _CrystallineGlow(
-            size: 45.w,
-            color: D.gold400.withOpacity(0.09), // soft gold
-            blur: 18.w,
-          ),
+          child: _Glow(size: 45.w, color: D.gold400.withOpacity(0.07)),
         ),
-        // Sharper gold highlight — top-right
         Positioned(
           top: 12.h,
           right: 6.w,
-          child: _CrystallineGlow(
-            size: 22.w,
-            color: D.gold400.withOpacity(0.11),
-            blur: 8.w,
-          ),
+          child: _Glow(size: 22.w, color: D.gold400.withOpacity(0.09)),
         ),
-        // Tiny gold spark — center-left
         Positioned(
           top: 35.h,
           left: 25.w,
-          child: _CrystallineGlow(
-            size: 6.w,
-            color: D.gold300.withOpacity(0.12),
-            blur: 3.w,
-          ),
+          child: _Glow(size: 6.w, color: D.gold300.withOpacity(0.10)),
         ),
         child,
       ],
@@ -389,47 +371,35 @@ class _MainArea extends StatelessWidget {
   }
 }
 
-class _CrystallineGlow extends StatelessWidget {
+// No boxShadow — RadialGradient alone produces the same visual with zero
+// compositing overhead
+class _Glow extends StatelessWidget {
   final double size;
   final Color color;
-  final double blur;
-  const _CrystallineGlow({
-    required this.size,
-    required this.color,
-    required this.blur,
-  });
+  const _Glow({required this.size, required this.color});
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => SizedBox(
     width: size,
     height: size,
-    decoration: BoxDecoration(
-      shape: BoxShape.circle,
-      gradient: RadialGradient(
-        center: Alignment.center,
-        radius: 0.5,
-        colors: [color, color.withOpacity(0.0)],
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: RadialGradient(colors: [color, color.withOpacity(0.0)]),
       ),
-      boxShadow: [
-        BoxShadow(
-          color: color.withOpacity(0.3),
-          blurRadius: blur,
-          spreadRadius: blur * 0.3,
-        ),
-      ],
     ),
   );
 }
 
-// ─────────────────────────────────────────────────
-//  SIDEBAR — Obsidian with dominant gold vein
-// ─────────────────────────────────────────────────
-class _Sidebar extends ConsumerWidget {
+// ─── Sidebar ──────────────────────────────────────────────
+// The sidebar itself is a StatelessWidget — it holds no state.
+// Navigation active-state is read inside _NavItem via GoRouterState.of(context)
+// which only rebuilds that one item, not the whole sidebar.
+class _Sidebar extends StatelessWidget {
   final UserRole role;
   final AppLocale locale;
   final BizTheme biz;
   final BusinessType bizType;
-
   const _Sidebar({
     required this.role,
     required this.locale,
@@ -438,10 +408,7 @@ class _Sidebar extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final path = GoRouterState.of(context).matchedLocation;
-    final user = ref.watch(currentUserProvider);
-
+  Widget build(BuildContext context) {
     return Container(
       width: 21.w,
       decoration: BoxDecoration(
@@ -466,8 +433,8 @@ class _Sidebar extends ConsumerWidget {
       ),
       child: Stack(
         children: [
-          _DotGridTexture(),
-          // Gold vein — vertical line
+          const _DotGridOverlay(),
+          // Gold vein
           Positioned(
             top: 0,
             bottom: 0,
@@ -505,7 +472,6 @@ class _Sidebar extends ConsumerWidget {
                         icon: Icons.dashboard_rounded,
                         labelEn: 'Dashboard',
                         labelUr: 'ڈیش بورڈ',
-                        currentPath: path,
                         locale: locale,
                       ),
                       _NavItem(
@@ -514,9 +480,8 @@ class _Sidebar extends ConsumerWidget {
                         icon: Icons.point_of_sale_rounded,
                         labelEn: bizType.saleLabel,
                         labelUr: 'سیل',
-                        currentPath: path,
                         locale: locale,
-                        trailing: _KbdSm('F1'),
+                        trailing: const _KbdSm('F1'),
                       ),
                       _NavItem(
                         index: 2,
@@ -524,7 +489,6 @@ class _Sidebar extends ConsumerWidget {
                         icon: Icons.inventory_2_rounded,
                         labelEn: bizType.productLabel,
                         labelUr: 'مال',
-                        currentPath: path,
                         locale: locale,
                       ),
                       _NavItem(
@@ -533,21 +497,18 @@ class _Sidebar extends ConsumerWidget {
                         icon: Icons.people_rounded,
                         labelEn: bizType.customerLabel,
                         labelUr: 'گاہک',
-                        currentPath: path,
                         locale: locale,
                       ),
-                      if (role.canManageProducts) ...[
+                      if (role.canManageProducts)
                         _NavItem(
                           index: 4,
                           route: '/purchase',
                           icon: Icons.shopping_cart_rounded,
                           labelEn: 'Purchase',
                           labelUr: 'خریداری',
-                          currentPath: path,
                           locale: locale,
                         ),
-                      ],
-                      _SidebarSectionLabel('Insights'),
+                      const _SidebarSectionLabel('Insights'),
                       if (role.canViewReports)
                         _NavItem(
                           index: 5,
@@ -555,7 +516,6 @@ class _Sidebar extends ConsumerWidget {
                           icon: Icons.bar_chart_rounded,
                           labelEn: 'Reports',
                           labelUr: 'رپورٹ',
-                          currentPath: path,
                           locale: locale,
                         ),
                       if (role.canViewAccounts)
@@ -565,17 +525,13 @@ class _Sidebar extends ConsumerWidget {
                           icon: Icons.account_balance_rounded,
                           labelEn: 'Accounts',
                           labelUr: 'حسابات',
-                          currentPath: path,
                           locale: locale,
                         ),
                     ],
                   ),
                 ),
               ),
-              _SidebarFooter(
-                user: user,
-                onSettings: () => context.go('/settings'),
-              ),
+              _SidebarFooter(onSettings: () => context.go('/settings')),
             ],
           ),
         ],
@@ -584,18 +540,17 @@ class _Sidebar extends ConsumerWidget {
   }
 }
 
-class _DotGridTexture extends StatelessWidget {
+class _DotGridOverlay extends StatelessWidget {
+  const _DotGridOverlay();
   @override
   Widget build(BuildContext context) =>
-      Positioned.fill(child: CustomPaint(painter: _DotGridTexturePainter()));
+      Positioned.fill(child: CustomPaint(painter: _DotGridPainter()));
 }
 
-class _DotGridTexturePainter extends CustomPainter {
+class _DotGridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = D.gold400.withOpacity(0.04)
-      ..style = PaintingStyle.fill;
+    final paint = Paint()..color = D.gold400.withOpacity(0.04);
     final spacing = 2.2.w;
     for (double x = 0; x < size.width; x += spacing) {
       for (double y = 0; y < size.height; y += spacing) {
@@ -623,7 +578,6 @@ class _SidebarBrand extends StatelessWidget {
     ),
     child: Row(
       children: [
-        // Gold brand mark
         Container(
           width: 3.6.h,
           height: 3.6.h,
@@ -632,15 +586,9 @@ class _SidebarBrand extends StatelessWidget {
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xFFD4AF37), Color(0xFF8B6914)], // gold gradient
+              colors: [Color(0xFFD4AF37), Color(0xFF8B6914)],
             ),
-            boxShadow: [
-              BoxShadow(
-                color: D.gold400.withOpacity(0.5),
-                blurRadius: 1.2.h,
-                spreadRadius: 0.1.h,
-              ),
-            ],
+            // Removed glow boxShadow — saves a compositing layer
           ),
           alignment: Alignment.center,
           child: Icon(
@@ -695,12 +643,7 @@ class _SidebarSectionLabel extends StatelessWidget {
           child: Container(
             width: 0.8.w,
             height: 0.8.w,
-            decoration: BoxDecoration(
-              color: D.gold400.withOpacity(0.7),
-              boxShadow: [
-                BoxShadow(color: D.gold400.withOpacity(0.4), blurRadius: 0.6.h),
-              ],
-            ),
+            color: D.gold400.withOpacity(0.7),
           ),
         ),
         SizedBox(width: 0.8.w),
@@ -730,13 +673,17 @@ class _SidebarSectionLabel extends StatelessWidget {
   );
 }
 
+// ── Nav item — FIXED: animate only once on first build ────
+// The old version ran .animate() every build, so every navigation
+// triggered the stagger entrance animation again — causing the visual jerk.
+// Now it uses a StatefulWidget that runs the animation controller once in
+// initState and never again.
 class _NavItem extends StatefulWidget {
   final int index;
   final String route;
   final IconData icon;
   final String labelEn;
   final String labelUr;
-  final String currentPath;
   final AppLocale locale;
   final Widget? trailing;
 
@@ -746,7 +693,6 @@ class _NavItem extends StatefulWidget {
     required this.icon,
     required this.labelEn,
     required this.labelUr,
-    required this.currentPath,
     required this.locale,
     this.trailing,
   });
@@ -755,18 +701,60 @@ class _NavItem extends StatefulWidget {
   State<_NavItem> createState() => _NavItemState();
 }
 
-class _NavItemState extends State<_NavItem> {
+class _NavItemState extends State<_NavItem>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _fade;
+  late final Animation<double> _slide;
   bool _hovered = false;
 
   @override
+  void initState() {
+    super.initState();
+    // Animation runs exactly ONCE — on first mount.
+    // Subsequent navigations do NOT retrigger it.
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    final delay = (100 + widget.index * 40) / 1000.0; // seconds
+
+    _fade = CurvedAnimation(
+      parent: _ctrl,
+      curve: Interval(delay / 0.8, 1.0, curve: Curves.easeOut),
+    );
+    _slide = Tween<double>(begin: -0.08, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _ctrl,
+        curve: Interval(delay / 0.8, 1.0, curve: Curves.easeOutCubic),
+      ),
+    );
+
+    // Fire and forget — runs once
+    _ctrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isActive = widget.currentPath.startsWith(widget.route);
+    // GoRouterState.of rebuilds only this widget, not the parent sidebar
+    final path = GoRouterState.of(context).matchedLocation;
+    final isActive = path.startsWith(widget.route);
     final label = widget.locale.isRtl ? widget.labelUr : widget.labelEn;
-    final staggerDelay = (100 + widget.index * 40).ms;
-    final entranceDuration = 350.ms;
 
     return Padding(
-          padding: EdgeInsets.only(bottom: 0.15.h),
+      padding: EdgeInsets.only(bottom: 0.15.h),
+      child: FadeTransition(
+        opacity: _fade,
+        child: SlideTransition(
+          position: _slide.drive(
+            Tween<Offset>(begin: const Offset(-0.08, 0), end: Offset.zero),
+          ),
           child: MouseRegion(
             onEnter: (_) => setState(() => _hovered = true),
             onExit: (_) => setState(() => _hovered = false),
@@ -778,8 +766,8 @@ class _NavItemState extends State<_NavItem> {
                 hoverColor: D.gold400.withOpacity(0.08),
                 splashColor: D.gold400.withOpacity(0.03),
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeOutCubic,
+                  duration: const Duration(milliseconds: 150), // snappier
+                  curve: Curves.easeOut,
                   padding: EdgeInsets.symmetric(
                     horizontal: 1.4.w,
                     vertical: 0.9.h,
@@ -803,9 +791,7 @@ class _NavItemState extends State<_NavItem> {
                             begin: Alignment.centerLeft,
                             end: Alignment.centerRight,
                             colors: [
-                              D.gold400.withOpacity(
-                                0.2,
-                              ), // gold wash instead of green
+                              D.gold400.withOpacity(0.2),
                               Colors.transparent,
                             ],
                           )
@@ -851,23 +837,15 @@ class _NavItemState extends State<_NavItem> {
               ),
             ),
           ),
-        )
-        .animate()
-        .fadeIn(duration: entranceDuration, delay: staggerDelay)
-        .slideX(
-          begin: -0.08,
-          end: 0,
-          duration: entranceDuration,
-          delay: staggerDelay,
-          curve: Curves.easeOutCubic,
-        );
+        ),
+      ),
+    );
   }
 }
 
 class _KbdSm extends StatelessWidget {
   final String label;
   const _KbdSm(this.label);
-
   @override
   Widget build(BuildContext context) => Container(
     height: 2.h,
@@ -891,9 +869,8 @@ class _KbdSm extends StatelessWidget {
 }
 
 class _SidebarFooter extends StatelessWidget {
-  final dynamic user;
   final VoidCallback onSettings;
-  const _SidebarFooter({required this.user, required this.onSettings});
+  const _SidebarFooter({required this.onSettings});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -918,19 +895,12 @@ class _SidebarFooter extends StatelessWidget {
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xFFD4AF37), Color(0xFF8B6914)], // gold
+              colors: [Color(0xFFD4AF37), Color(0xFF8B6914)],
             ),
             border: Border.all(
               color: D.gold400.withOpacity(0.4),
               width: 0.12.h,
             ),
-            boxShadow: [
-              BoxShadow(
-                color: D.gold400.withOpacity(0.3),
-                blurRadius: 0.8.h,
-                spreadRadius: 0.1.h,
-              ),
-            ],
           ),
           alignment: Alignment.center,
           child: Text(
@@ -988,9 +958,7 @@ class _SidebarFooter extends StatelessWidget {
   );
 }
 
-// ─────────────────────────────────────────────────
-//  STATUSBAR — Gold accents, reduced green
-// ─────────────────────────────────────────────────
+// ─── Statusbar ────────────────────────────────────────────
 class _Statusbar extends ConsumerWidget {
   final SyncState? sync;
   final BizTheme biz;
@@ -1000,7 +968,6 @@ class _Statusbar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final status = sync?.status ?? SyncStatus.idle;
     final online = status != SyncStatus.offline;
-    // Synced status: gold dot instead of green
     final (dotColor, syncLabel) = switch (status) {
       SyncStatus.syncing => (D.gold400, 'Syncing…'),
       SyncStatus.offline => (D.warning500, 'Offline — sync paused'),
@@ -1009,8 +976,7 @@ class _Statusbar extends ConsumerWidget {
     };
     final branch =
         ref.watch(prefsProvider).getString(AppConstants.keyBranchId) ?? '';
-    final now = TimeOfDay.now();
-    final timeStr = now.format(context);
+    final timeStr = TimeOfDay.now().format(context);
 
     return Container(
       height: 3.2.h,
@@ -1123,44 +1089,27 @@ class _Statusbar extends ConsumerWidget {
 class _StatusGroup extends StatelessWidget {
   final List<Widget> children;
   const _StatusGroup({required this.children});
-
   @override
   Widget build(BuildContext context) => Row(
     mainAxisSize: MainAxisSize.min,
-    children: children.map((w) {
-      final i = children.indexOf(w);
-      return i < children.length - 1
-          ? Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                w,
-                SizedBox(width: 0.6.w),
-              ],
-            )
-          : w;
-    }).toList(),
+    children: [
+      for (int i = 0; i < children.length; i++) ...[
+        children[i],
+        if (i < children.length - 1) SizedBox(width: 0.6.w),
+      ],
+    ],
   );
 }
 
 class _StatusDot extends StatelessWidget {
   final Color color;
   const _StatusDot(this.color);
-
   @override
   Widget build(BuildContext context) => Container(
     width: 0.7.h,
     height: 0.7.h,
-    decoration: BoxDecoration(
-      shape: BoxShape.circle,
-      color: color,
-      boxShadow: [
-        BoxShadow(
-          color: color.withOpacity(0.6),
-          blurRadius: 0.5.h,
-          spreadRadius: 0.15.h,
-        ),
-      ],
-    ),
+    decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+    // Removed glow boxShadow — saves compositing layer on statusbar
   );
 }
 
@@ -1174,13 +1123,10 @@ class _StatusSep extends StatelessWidget {
   );
 }
 
-// ─────────────────────────────────────────────────
-//  LICENSE BANNER — Warm warning tone
-// ─────────────────────────────────────────────────
+// ─── License banner ───────────────────────────────────────
 class _LicenseBanner extends StatelessWidget {
   final String message;
   const _LicenseBanner({required this.message});
-
   @override
   Widget build(BuildContext context) => Container(
     padding: EdgeInsets.symmetric(horizontal: 2.w, vertical: 0.7.h),

@@ -1,3 +1,4 @@
+// lib/core/router/app_router.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -19,146 +20,175 @@ import '../../features/settings/screens/settings_screen.dart';
 import '../../shared/providers/app_providers.dart';
 import '../../shared/widgets/main_shell.dart';
 
-// ── Supabase auth stream provider ────────────────────────
-// GoRouter refreshes whenever this stream emits an event.
-// This fires on signIn, signOut, tokenRefresh, etc.
+// ── Auth stream provider ──────────────────────────────────
 final _authStateProvider = StreamProvider<AuthState>((ref) {
   return Supabase.instance.client.auth.onAuthStateChange;
 });
 
+// ── Router provider — created ONCE, never recreated ───────
+// The old version used Provider<GoRouter> which recreated the entire GoRouter
+// every time licenseProvider or _authStateProvider emitted. That forced
+// GoRouter to rebuild the full navigation stack on every auth tick,
+// producing the "previous screen flashes before the new one" jerk.
+//
+// Fix: use a long-lived ChangeNotifierProvider so the GoRouter instance
+// stays stable. Only the redirect() logic reruns on auth/license changes.
 final appRouterProvider = Provider<GoRouter>((ref) {
-  // These providers trigger router refresh on change
-  final licenseAsync = ref.watch(licenseProvider);
-  final authAsync = ref.watch(_authStateProvider);
+  final notifier = _RouterNotifier(ref);
 
-  return GoRouter(
+  final router = GoRouter(
     initialLocation: '/login',
-
-    // ── Refresh listenable: rebuild router when auth or license changes ──
-    refreshListenable: _RouterNotifier(ref),
-
-    redirect: (context, state) {
-      final path = state.matchedLocation;
-
-      // ── 1. License check ──────────────────────────────
-      // Always allow license + setup screens
-      if (path.startsWith('/license') || path.startsWith('/setup')) {
-        return null;
-      }
-
-      // While license is loading don't redirect
-      if (licenseAsync.isLoading) return null;
-
-      final license = licenseAsync.value;
-
-      // Not activated / revoked → show license screen
-      if (license == null ||
-          license.status == LicenseStatus.notActivated ||
-          license.status == LicenseStatus.revoked) {
-        return '/license';
-      }
-
-      // Expired past grace period
-      if (license.status == LicenseStatus.expired) {
-        return '/license?reason=expired';
-      }
-
-      // ── 2. Auth check ──────────────────────────────────
-      // Get LIVE session from Supabase (not a stale provider value)
-      final session = Supabase.instance.client.auth.currentSession;
-      final isLoggedIn = session != null && !_isTokenExpired(session);
-
-      if (!isLoggedIn) {
-        // Not on login page → send to login
-        if (!path.startsWith('/login')) return '/login';
-        return null; // already on login, stay
-      }
-
-      // ── 3. Logged in — skip login/license if already authed ──
-      if (path.startsWith('/login') || path.startsWith('/license')) {
-        // Decide where to send them
-        final tenantId = ref.read(currentTenantIdProvider);
-        if (tenantId.isEmpty) return '/setup';
-        return '/dashboard';
-      }
-
-      // ── 4. First-time setup ───────────────────────────
-      final tenantId = ref.read(currentTenantIdProvider);
-      if (tenantId.isEmpty && !path.startsWith('/setup')) {
-        return '/setup';
-      }
-
-      return null; // all good — let navigation proceed
-    },
-
+    refreshListenable: notifier,
+    // No animation between shell routes — instant, zero jerk
+    // Individual screens can add their own entry animations if desired
+    redirect: (context, state) => notifier._redirect(state),
     routes: [
       GoRoute(
         path: '/license',
-        builder: (_, s) =>
-            LicenseScreen(reason: s.uri.queryParameters['reason']),
+        pageBuilder: (_, s) => _noAnimPage(
+          LicenseScreen(reason: s.uri.queryParameters['reason']),
+          s.pageKey,
+        ),
       ),
-      GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
-      GoRoute(path: '/setup', builder: (_, __) => const SetupScreen()),
+      GoRoute(
+        path: '/login',
+        pageBuilder: (_, s) => _noAnimPage(const LoginScreen(), s.pageKey),
+      ),
+      GoRoute(
+        path: '/setup',
+        pageBuilder: (_, s) => _noAnimPage(const SetupScreen(), s.pageKey),
+      ),
 
       ShellRoute(
         builder: (_, __, child) => MainShell(child: child),
         routes: [
           GoRoute(
             path: '/dashboard',
-            builder: (_, __) => const DashboardScreen(),
+            // NoTransitionPage: eliminates the cross-fade between sidebar
+            // screens — the sidebar stays perfectly still, only the content
+            // area swaps instantly. This is what professional desktop ERPs do.
+            pageBuilder: (_, s) =>
+                _noAnimPage(const DashboardScreen(), s.pageKey),
           ),
-          GoRoute(path: '/pos', builder: (_, __) => const PosScreen()),
+          GoRoute(
+            path: '/pos',
+            pageBuilder: (_, s) => _noAnimPage(const PosScreen(), s.pageKey),
+          ),
           GoRoute(
             path: '/inventory',
-            builder: (_, __) => const InventoryScreen(),
+            pageBuilder: (_, s) =>
+                _noAnimPage(const InventoryScreen(), s.pageKey),
           ),
           GoRoute(
             path: '/customers',
-            builder: (_, __) => const CustomersScreen(),
+            pageBuilder: (_, s) =>
+                _noAnimPage(const CustomersScreen(), s.pageKey),
           ),
           GoRoute(
             path: '/purchase',
-            builder: (_, __) => const PurchaseScreen(),
+            pageBuilder: (_, s) =>
+                _noAnimPage(const PurchaseScreen(), s.pageKey),
           ),
           GoRoute(
             path: '/accounts',
-            builder: (_, __) => const AccountsScreen(),
+            pageBuilder: (_, s) =>
+                _noAnimPage(const AccountsScreen(), s.pageKey),
           ),
-          GoRoute(path: '/reports', builder: (_, __) => const ReportsScreen()),
+          GoRoute(
+            path: '/reports',
+            pageBuilder: (_, s) =>
+                _noAnimPage(const ReportsScreen(), s.pageKey),
+          ),
           GoRoute(
             path: '/settings',
-            builder: (_, __) => const SettingsScreen(),
+            pageBuilder: (_, s) =>
+                _noAnimPage(const SettingsScreen(), s.pageKey),
           ),
         ],
       ),
     ],
   );
+
+  ref.onDispose(notifier.dispose);
+  return router;
 });
 
-// ── Check if JWT access token is expired ─────────────────
+// Zero-duration page swap — no crossfade, no slide, no scale
+// The shell (sidebar + topbar) stays on screen the whole time.
+// Only the content area changes, and it changes instantly.
+NoTransitionPage<void> _noAnimPage(Widget child, ValueKey<String> key) =>
+    NoTransitionPage<void>(key: key, child: child);
+
+// ── Token expiry check ────────────────────────────────────
 bool _isTokenExpired(Session session) {
   final expiresAt = session.expiresAt;
   if (expiresAt == null) return false;
-  // expiresAt is in seconds since epoch
   return DateTime.now().millisecondsSinceEpoch / 1000 > expiresAt;
 }
 
-// ── Listenable that triggers GoRouter refresh ─────────────
-// GoRouter calls redirect() again whenever this notifies.
+// ── Router notifier — stable ChangeNotifier ───────────────
+// Lives for the lifetime of the provider. GoRouter holds a reference to it
+// and calls redirect() again whenever notifyListeners() fires.
+// Because this is NOT recreated on auth ticks, GoRouter stays stable.
 class _RouterNotifier extends ChangeNotifier {
   final Ref _ref;
-  late final _sub;
+  late final _authSub;
+
+  // Cache the last known license so redirect() doesn't need to async-wait
+  LicenseResult? _license;
+  bool _licenseLoading = true;
 
   _RouterNotifier(this._ref) {
-    // Listen to Supabase auth state changes
-    _sub = Supabase.instance.client.auth.onAuthStateChange.listen((_) {
-      notifyListeners(); // triggers GoRouter to re-run redirect()
+    // Watch license changes and notify router
+    _ref.listen<AsyncValue<LicenseResult>>(licenseProvider, (_, next) {
+      _licenseLoading = next.isLoading;
+      _license = next.value;
+      notifyListeners();
     });
+
+    // Watch Supabase auth changes and notify router
+    _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((_) {
+      notifyListeners();
+    });
+  }
+
+  String? _redirect(GoRouterState state) {
+    final path = state.matchedLocation;
+
+    if (path.startsWith('/license') || path.startsWith('/setup')) return null;
+    if (_licenseLoading) return null;
+
+    final license = _license;
+    if (license == null ||
+        license.status == LicenseStatus.notActivated ||
+        license.status == LicenseStatus.revoked) {
+      return '/license';
+    }
+    if (license.status == LicenseStatus.expired) {
+      return '/license?reason=expired';
+    }
+
+    final session = Supabase.instance.client.auth.currentSession;
+    final isLoggedIn = session != null && !_isTokenExpired(session);
+
+    if (!isLoggedIn) {
+      return path.startsWith('/login') ? null : '/login';
+    }
+
+    if (path.startsWith('/login') || path.startsWith('/license')) {
+      final tenantId = _ref.read(currentTenantIdProvider);
+      return tenantId.isEmpty ? '/setup' : '/dashboard';
+    }
+
+    final tenantId = _ref.read(currentTenantIdProvider);
+    if (tenantId.isEmpty && !path.startsWith('/setup')) return '/setup';
+
+    return null;
   }
 
   @override
   void dispose() {
-    _sub.cancel();
+    _authSub.cancel();
     super.dispose();
   }
 }

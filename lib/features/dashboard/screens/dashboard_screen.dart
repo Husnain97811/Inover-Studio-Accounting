@@ -12,8 +12,8 @@ class DashboardScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Only watch what affects the header — bizType/locale are cheap StateNotifiers
     final bizType = ref.watch(businessTypeProvider);
-    final locale = ref.watch(localeProvider);
     final stats = ref.watch(dashStatsProvider);
 
     return Scaffold(
@@ -61,7 +61,6 @@ class DashboardScreen extends ConsumerWidget {
                 ),
               ],
             ),
-
             Padding(
               padding: EdgeInsets.fromLTRB(5.w, 4.h, 5.w, 0),
               child: stats.when(
@@ -77,6 +76,7 @@ class DashboardScreen extends ConsumerWidget {
                     child: Text('Error: $e', style: TextStyle(fontSize: 12.sp)),
                   ),
                 ),
+                // Pass data into a pure StatelessWidget — no ref.watch inside
                 data: (s) => _DashBody(stats: s, bizType: bizType),
               ),
             ),
@@ -87,6 +87,9 @@ class DashboardScreen extends ConsumerWidget {
   }
 }
 
+// Pure StatelessWidget — never rebuilds unless stats or bizType change.
+// The sync panel is split into its own ConsumerWidget so only IT rebuilds
+// on sync ticks, not the KPI cards or chart.
 class _DashBody extends StatelessWidget {
   final DashStats stats;
   final BusinessType bizType;
@@ -97,7 +100,7 @@ class _DashBody extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // KPI grid
+        // KPI grid ─────────────────────────────────────────
         LayoutBuilder(
           builder: (_, c) {
             final cols = c.maxWidth > 900 ? 4 : 2;
@@ -110,21 +113,21 @@ class _DashBody extends StatelessWidget {
               childAspectRatio: c.maxWidth > 900 ? 1.65 : 1.5,
               children: [
                 StatCard(
-                  label: "Sales today",
-                  value: "Rs. ${Fmt.pkrShort(stats.todaySales.toDouble())}",
-                  delta: "vs yesterday",
+                  label: 'Sales today',
+                  value: 'Rs. ${Fmt.pkrShort(stats.todaySales)}',
+                  delta: 'vs yesterday',
                   deltaUp: true,
-                  spark: _MiniSparkLine(stats.todaySales.toDouble()),
+                  spark: _MiniSparkLine(stats.todaySales),
                 ),
                 StatCard(
-                  label: "Transactions",
+                  label: 'Transactions',
                   value: stats.todayCount.toString(),
                   sub: '${bizType.saleLabel}s today',
-                  delta: "+${stats.todayCount}",
+                  delta: '+${stats.todayCount}',
                   deltaUp: false,
                 ),
                 StatCard(
-                  label: "Pending FBR",
+                  label: 'Pending FBR',
                   value: stats.fbrPending.toString(),
                   sub: 'Auto-retry in 4 min',
                   goldVariant: true,
@@ -133,7 +136,7 @@ class _DashBody extends StatelessWidget {
                       : StatusBadge.success('All fiscalized'),
                 ),
                 StatCard(
-                  label: "Low stock SKUs",
+                  label: 'Low stock SKUs',
                   value: stats.lowStock.toString(),
                   sub: stats.lowStock > 0 ? 'Reorder needed' : 'Stock OK',
                   extra: stats.lowStock > 0
@@ -147,32 +150,33 @@ class _DashBody extends StatelessWidget {
 
         SizedBox(height: 2.h),
 
-        // Chart + Sync panel
+        // Chart + sync panel ───────────────────────────────
+        // _SyncPanel is a ConsumerWidget that watches only syncStateProvider.
+        // Isolating it here means sync ticks (every 30s) rebuild ONLY the
+        // sync panel, never the KPI cards or chart above.
         LayoutBuilder(
           builder: (_, c) {
             if (c.maxWidth > 800) {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(flex: 3, child: _HourlyChart()),
+                  Expanded(flex: 3, child: const _HourlyChart()),
                   SizedBox(width: 2.w),
-                  Expanded(flex: 2, child: _SyncPanel()),
+                  Expanded(flex: 2, child: const _SyncPanel()),
                 ],
               );
             }
             return Column(
               children: [
-                _HourlyChart(),
+                const _HourlyChart(),
                 SizedBox(height: 2.h),
-                _SyncPanel(),
+                const _SyncPanel(),
               ],
             );
           },
         ),
 
         SizedBox(height: 2.h),
-
-        // Recent invoices
         _RecentInvoices(invoices: stats.recentInvoices),
         SizedBox(height: 6.h),
       ],
@@ -180,13 +184,15 @@ class _DashBody extends StatelessWidget {
   }
 }
 
+// ── Spark line ────────────────────────────────────────────
 class _MiniSparkLine extends StatelessWidget {
   final double peak;
   const _MiniSparkLine(this.peak);
 
+  static const _pts = [20.0, 28, 22, 36, 40, 38, 52, 48, 60, 64, 72, 80, 86];
+
   @override
   Widget build(BuildContext context) {
-    final pts = [20.0, 28, 22, 36, 40, 38, 52, 48, 60, 64, 72, 80, 86];
     return SizedBox(
       height: 4.5.h,
       child: LineChart(
@@ -197,7 +203,7 @@ class _MiniSparkLine extends StatelessWidget {
           lineTouchData: const LineTouchData(enabled: false),
           lineBarsData: [
             LineChartBarData(
-              spots: pts
+              spots: _pts
                   .asMap()
                   .entries
                   .map((e) => FlSpot(e.key.toDouble(), e.value.toDouble()))
@@ -219,26 +225,29 @@ class _MiniSparkLine extends StatelessWidget {
   }
 }
 
+// ── Hourly chart (static data — const-eligible) ──────────
 class _HourlyChart extends StatelessWidget {
+  const _HourlyChart();
+
+  static const _data = [12.0, 18, 28, 34, 22, 30, 42, 38, 26, 48, 36, 20];
+  static const _labels = [
+    '9a',
+    '10a',
+    '11a',
+    '12p',
+    '1p',
+    '2p',
+    '3p',
+    '4p',
+    '5p',
+    '6p',
+    '7p',
+    '8p',
+  ];
+
   @override
   Widget build(BuildContext context) {
-    final data = [12.0, 18, 28, 34, 22, 30, 42, 38, 26, 48, 36, 20];
-    final maxV = data.reduce((a, b) => a > b ? a : b);
-    final labels = [
-      '9a',
-      '10a',
-      '11a',
-      '12p',
-      '1p',
-      '2p',
-      '3p',
-      '4p',
-      '5p',
-      '6p',
-      '7p',
-      '8p',
-    ];
-
+    const maxV = 48.0; // precomputed from _data
     return ErpCard(
       goldRule: true,
       child: Column(
@@ -314,7 +323,7 @@ class _HourlyChart extends StatelessWidget {
                       getTitlesWidget: (v, _) => Padding(
                         padding: EdgeInsets.only(top: 0.5.h),
                         child: Text(
-                          labels[v.toInt()],
+                          _labels[v.toInt()],
                           style: TextStyle(
                             fontFamily: 'JetBrains Mono',
                             fontSize: 9.sp,
@@ -325,22 +334,25 @@ class _HourlyChart extends StatelessWidget {
                     ),
                   ),
                 ),
-                barGroups: data.asMap().entries.map((e) {
-                  final isPeak = e.value == maxV;
-                  return BarChartGroupData(
-                    x: e.key,
-                    barRods: [
-                      BarChartRodData(
-                        toY: e.value.toDouble(),
-                        width: 1.8.w,
-                        borderRadius: BorderRadius.vertical(
-                          top: Radius.circular(0.4.h),
-                        ),
-                        color: isPeak ? D.brand500 : D.brand100,
+                barGroups: _data
+                    .asMap()
+                    .entries
+                    .map(
+                      (e) => BarChartGroupData(
+                        x: e.key,
+                        barRods: [
+                          BarChartRodData(
+                            toY: e.value.toDouble(),
+                            width: 1.8.w,
+                            borderRadius: BorderRadius.vertical(
+                              top: Radius.circular(0.4.h),
+                            ),
+                            color: e.value == maxV ? D.brand500 : D.brand100,
+                          ),
+                        ],
                       ),
-                    ],
-                  );
-                }).toList(),
+                    )
+                    .toList(),
               ),
             ),
           ),
@@ -350,7 +362,12 @@ class _HourlyChart extends StatelessWidget {
   }
 }
 
+// ── Sync panel — isolated ConsumerWidget ─────────────────
+// Only this widget rebuilds on sync ticks (every 30s).
+// Nothing above it in the tree is affected.
 class _SyncPanel extends ConsumerWidget {
+  const _SyncPanel();
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sync = ref.watch(syncStateProvider).value;
@@ -428,6 +445,7 @@ class _SyncRow extends StatelessWidget {
   );
 }
 
+// ── Recent invoices table ─────────────────────────────────
 class _RecentInvoices extends StatelessWidget {
   final List<Map<String, dynamic>> invoices;
   const _RecentInvoices({required this.invoices});
@@ -492,9 +510,7 @@ class _RecentInvoices extends StatelessWidget {
                 1: FlexColumnWidth(2),
                 2: FlexColumnWidth(1.2),
                 3: FlexColumnWidth(1.5),
-                4: FixedColumnWidth(
-                  80,
-                ), // keep as fixed for time column; could also use Sizer but time column width is ok
+                4: FixedColumnWidth(80),
               },
               children: [
                 TableRow(
@@ -585,7 +601,6 @@ class _RecentInvoices extends StatelessWidget {
 class _TCell extends StatelessWidget {
   final Widget child;
   const _TCell({required this.child});
-
   @override
   Widget build(BuildContext context) => Padding(
     padding: EdgeInsets.symmetric(horizontal: 1.8.w, vertical: 1.4.h),
