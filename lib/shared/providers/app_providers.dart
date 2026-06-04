@@ -4,7 +4,6 @@ import 'package:drift/drift.dart'
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:uuid/uuid.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/database/app_database.dart';
 import '../../core/licensing/license_service.dart';
@@ -63,7 +62,7 @@ final licenseProvider = FutureProvider<LicenseResult>((ref) async {
 //  FBR
 // ─────────────────────────────────────────────────
 final fbrServiceProvider = Provider<FbrService>((ref) {
-  final svc = FbrService(ref.watch(databaseProvider));
+  final svc = FbrService(ref.watch(databaseProvider), ref.watch(prefsProvider));
   ref.onDispose(svc.stop);
   return svc;
 });
@@ -151,8 +150,9 @@ class CartItem {
   final String productId;
   final String name;
   final String pctCode;
-  final double unitPrice;
+  final double unitPrice; // the actual selling price (salePrice)
   final double taxRate;
+  final double? mrp; // list price; strike when mrp != null && mrp > unitPrice
   double quantity;
   double discountRate;
 
@@ -162,9 +162,12 @@ class CartItem {
     required this.pctCode,
     required this.unitPrice,
     required this.taxRate,
+    this.mrp,
     this.quantity = 1.0,
     this.discountRate = 0.0,
   });
+
+  bool get hasMrpDiscount => mrp != null && mrp! > unitPrice;
 
   double get discountAmount => unitPrice * quantity * discountRate / 100;
   double get taxableAmount => unitPrice * quantity - discountAmount;
@@ -177,14 +180,20 @@ class CartItem {
     pctCode: pctCode,
     unitPrice: unitPrice,
     taxRate: taxRate,
+    mrp: mrp,
     quantity: quantity ?? this.quantity,
     discountRate: discountRate ?? this.discountRate,
   );
 }
 
+// ── CartState — add cartDiscount + customerNtn ────────────
 class CartState {
   final List<CartItem> items;
   final String? customerId;
+  final String? customerName; // for cart header display
+  final String? customerNtn; // flows into FBR buyer fields
+  final double
+  cartDiscount; // whole-sale discount in RUPEES (resolved from % or Rs.)
   final String paymentMode;
   final double amountPaid;
   final String? notes;
@@ -192,34 +201,55 @@ class CartState {
   const CartState({
     this.items = const [],
     this.customerId,
+    this.customerName,
+    this.customerNtn,
+    this.cartDiscount = 0.0,
     this.paymentMode = 'cash',
     this.amountPaid = 0.0,
     this.notes,
   });
 
+  // Sum of line totals BEFORE the cart-level discount.
+  double get itemsTotal => items.fold(0.0, (s, i) => s + i.lineTotal);
+
   double get subtotal =>
       items.fold(0.0, (s, i) => s + i.unitPrice * i.quantity);
   double get totalDiscount => items.fold(0.0, (s, i) => s + i.discountAmount);
   double get totalTax => items.fold(0.0, (s, i) => s + i.taxAmount);
-  double get totalWithTax => items.fold(0.0, (s, i) => s + i.lineTotal);
+
+  // Final payable = items total minus the whole-cart discount (never below 0).
+  double get totalWithTax {
+    final t = itemsTotal - cartDiscount;
+    return t < 0 ? 0 : t;
+  }
+
   double get change => amountPaid - totalWithTax;
   bool get isEmpty => items.isEmpty;
+  bool get hasCustomer => customerId != null;
 
   CartState copyWith({
     List<CartItem>? items,
     String? customerId,
+    String? customerName,
+    String? customerNtn,
+    double? cartDiscount,
     String? paymentMode,
     double? amountPaid,
     String? notes,
+    bool clearCustomer = false,
   }) => CartState(
     items: items ?? this.items,
-    customerId: customerId ?? this.customerId,
+    customerId: clearCustomer ? null : (customerId ?? this.customerId),
+    customerName: clearCustomer ? null : (customerName ?? this.customerName),
+    customerNtn: clearCustomer ? null : (customerNtn ?? this.customerNtn),
+    cartDiscount: cartDiscount ?? this.cartDiscount,
     paymentMode: paymentMode ?? this.paymentMode,
     amountPaid: amountPaid ?? this.amountPaid,
     notes: notes ?? this.notes,
   );
 }
 
+// ── CartNotifier — add discount + customer methods ────────
 class CartNotifier extends Notifier<CartState> {
   @override
   CartState build() => const CartState();
@@ -254,7 +284,16 @@ class CartNotifier extends Notifier<CartState> {
 
   void setPaymentMode(String m) => state = state.copyWith(paymentMode: m);
   void setAmountPaid(double a) => state = state.copyWith(amountPaid: a);
-  void setCustomer(String? id) => state = state.copyWith(customerId: id);
+
+  // Customer attach / detach
+  void setCustomer({String? id, String? name, String? ntn}) => state = state
+      .copyWith(customerId: id, customerName: name, customerNtn: ntn);
+  void clearCustomer() => state = state.copyWith(clearCustomer: true);
+
+  // Whole-cart discount (already resolved to rupees by the dialog)
+  void setCartDiscount(double rupees) =>
+      state = state.copyWith(cartDiscount: rupees < 0 ? 0 : rupees);
+
   void clear() => state = const CartState();
 }
 

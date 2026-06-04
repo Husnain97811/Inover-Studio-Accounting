@@ -8,7 +8,15 @@ class AppConstants {
   // ─── CHANGE THESE in lib/core/constants/app_constants.dart ───
   // Get from: https://app.supabase.com → Your Project → Settings → API
   // In AppConstants class, add alongside other key constants:
-  static const keyFbrToken = 'fbr_token';
+  static const keyFbrToken = 'fbr_token'; // already exists
+  // FBR environment + seller identity (read by FbrService when building payloads)
+  static const keyFbrEnv = 'fbr_env'; // 'sandbox' | 'production'
+  static const keyTenantNtn = 'tenant_ntn'; // seller NTN/STRN
+  static const keyTenantName = 'tenant_name'; // seller business name
+  static const keyTenantProvince = 'tenant_province'; // e.g. 'Punjab'
+  static const keyTenantAddress = 'tenant_address'; // seller address
+
+  // keyFbrToken and fbrMaxRetries you already have.
   static const supabaseUrl = 'https://arednahdmuguxvwyvhua.supabase.co';
   static const supabaseAnonKey =
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFyZWRuYWhkbXVndXh2d3l2aHVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyNjM0NTcsImV4cCI6MjA5NDgzOTQ1N30.K0cyNueCqI58I8I1_MriXLIpOOGXuzYPKS8Q9Xg5JeY';

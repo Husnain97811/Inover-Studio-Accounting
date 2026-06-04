@@ -1,24 +1,10 @@
 // lib/core/router/app_router.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../core/constants/app_constants.dart';
-import '../../core/licensing/license_service.dart';
-import '../../features/auth/screens/license_screen.dart';
-import '../../features/auth/screens/login_screen.dart';
-import '../../features/auth/screens/setup_screen.dart';
-import '../../features/dashboard/screens/dashboard_screen.dart';
-import '../../features/pos/screens/pos_screen.dart';
-import '../../features/inventory/screens/inventory_screen.dart';
-import '../../features/customers/screens/customers_screen.dart';
-import '../../features/purchase/screens/purchase_screen.dart';
-import '../../features/accounts/screens/accounts_screen.dart';
-import '../../features/reports/screens/reports_screen.dart';
-import '../../features/settings/screens/settings_screen.dart';
-import '../../shared/providers/app_providers.dart';
 import '../../shared/widgets/main_shell.dart';
+import '../constants/views.dart';
 
 // ── Auth stream provider ──────────────────────────────────
 final _authStateProvider = StreamProvider<AuthState>((ref) {
@@ -69,6 +55,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             // area swaps instantly. This is what professional desktop ERPs do.
             pageBuilder: (_, s) =>
                 _noAnimPage(const DashboardScreen(), s.pageKey),
+          ),
+          GoRoute(
+            path: '/invoices',
+            pageBuilder: (_, s) =>
+                _noAnimPage(const InvoicesScreen(), s.pageKey),
           ),
           GoRoute(
             path: '/pos',

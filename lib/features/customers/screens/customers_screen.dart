@@ -1,8 +1,11 @@
 // lib/features/customers/screens/customers_screen.dart
+// Responsive (sizer). Tapping a customer opens the khata detail screen;
+// the edit pencil still opens the edit dialog.
 import 'package:drift/drift.dart'
     show Value, OrderingTerm, BooleanExpressionOperators;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:sizer/sizer.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/constants/views.dart';
@@ -12,6 +15,7 @@ import '../../../core/utils/error_handler.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/providers/app_providers.dart';
 import '../../../shared/widgets/common_widgets.dart';
+import 'customer_detail_screen.dart';
 
 class CustomersScreen extends ConsumerStatefulWidget {
   const CustomersScreen({super.key});
@@ -37,17 +41,16 @@ class _State extends ConsumerState<CustomersScreen> {
             title: bizType.customerLabel,
             actions: [
               ElevatedButton.icon(
-                onPressed: () => _showDialog(context),
-                icon: const Icon(Icons.person_add_rounded, size: 15),
-                label: const Text('Add Customer'),
+                onPressed: () => _showEdit(context),
+                icon: Icon(Icons.person_add_rounded, size: 13.sp),
+                label: Text('Add Customer', style: TextStyle(fontSize: 11.sp)),
               ),
             ],
           ),
-
           Padding(
-            padding: const EdgeInsets.fromLTRB(40, 20, 40, 0),
+            padding: EdgeInsets.fromLTRB(5.w, 2.h, 5.w, 0),
             child: TextField(
-              style: const TextStyle(fontFamily: 'Inter', fontSize: 13),
+              style: TextStyle(fontFamily: 'Inter', fontSize: 11.sp),
               decoration: const InputDecoration(
                 hintText: 'Search by name or phone…',
                 prefixIcon: Icon(
@@ -59,8 +62,7 @@ class _State extends ConsumerState<CustomersScreen> {
               onChanged: (v) => setState(() => _q = v.toLowerCase()),
             ),
           ),
-          const SizedBox(height: 16),
-
+          SizedBox(height: 2.h),
           Expanded(
             child: StreamBuilder<List<Customer>>(
               stream:
@@ -94,7 +96,7 @@ class _State extends ConsumerState<CustomersScreen> {
                 }
 
                 return SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(40, 0, 40, 40),
+                  padding: EdgeInsets.fromLTRB(5.w, 0, 5.w, 4.h),
                   child: ErpCard(
                     padding: EdgeInsets.zero,
                     child: Column(
@@ -102,7 +104,8 @@ class _State extends ConsumerState<CustomersScreen> {
                           .map(
                             (c) => _CustomerRow(
                               customer: c,
-                              onEdit: () => _showDialog(context, customer: c),
+                              onOpen: () => _showDetail(context, c),
+                              onEdit: () => _showEdit(context, customer: c),
                             ),
                           )
                           .toList(),
@@ -117,90 +120,159 @@ class _State extends ConsumerState<CustomersScreen> {
     );
   }
 
-  void _showDialog(BuildContext ctx, {Customer? customer}) {
-    showDialog(
-      context: ctx,
-      builder: (_) => _CustomerDialog(customer: customer),
-    );
-  }
+  void _showDetail(BuildContext ctx, Customer c) => showDialog(
+    context: ctx,
+    builder: (_) => CustomerDetailScreen(customer: c),
+  );
+
+  void _showEdit(BuildContext ctx, {Customer? customer}) => showDialog(
+    context: ctx,
+    builder: (_) => _CustomerDialog(customer: customer),
+  );
 }
 
 class _CustomerRow extends StatelessWidget {
   final Customer customer;
+  final VoidCallback onOpen;
   final VoidCallback onEdit;
-  const _CustomerRow({required this.customer, required this.onEdit});
+  const _CustomerRow({
+    required this.customer,
+    required this.onOpen,
+    required this.onEdit,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: D.borderSubtle)),
-      ),
-      child: Row(
-        children: [
-          // Avatar
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: D.brand50,
-              border: Border.all(color: D.brand100),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              customer.name.substring(0, 1).toUpperCase(),
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: D.brand600,
+    return InkWell(
+      onTap: onOpen, // tapping the row opens the khata detail
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 2.w, vertical: 1.4.h),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: D.borderSubtle)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 4.5.w,
+              height: 4.5.w,
+              constraints: const BoxConstraints(
+                maxWidth: 36,
+                maxHeight: 36,
+                minWidth: 28,
+                minHeight: 28,
+              ),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: D.brand50,
+                border: Border.all(color: D.brand100),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                customer.name.substring(0, 1).toUpperCase(),
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11.sp,
+                  fontWeight: FontWeight.w700,
+                  color: D.brand600,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          // Info
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  customer.name,
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: D.fgPrimary,
-                  ),
-                ),
-                if (customer.phone != null || customer.cnic != null)
+            SizedBox(width: 1.5.w),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    customer.phone ?? customer.cnic ?? '',
-                    style: const TextStyle(
-                      fontFamily: 'JetBrains Mono',
-                      fontSize: 11,
-                      color: D.fgTertiary,
+                    customer.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 11.sp,
+                      fontWeight: FontWeight.w600,
+                      color: D.fgPrimary,
                     ),
                   ),
+                  if (customer.phone != null || customer.ntn != null)
+                    Text(
+                      [
+                        if (customer.phone != null) customer.phone!,
+                        if (customer.ntn != null) 'NTN ${customer.ntn}',
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: 'JetBrains Mono',
+                        fontSize: 9.sp,
+                        color: D.fgTertiary,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (customer.balance > 0) ...[
+              if (customer.balance != 0) ...[
+                _BalanceBadge(balance: customer.balance),
+                SizedBox(width: 1.w),
               ],
+              SizedBox(width: 1.w),
+            ],
+            Icon(Icons.chevron_right_rounded, size: 15.sp, color: D.fgTertiary),
+            IconButton(
+              icon: Icon(Icons.edit_rounded, size: 13.sp, color: D.fgTertiary),
+              onPressed: onEdit,
+              style: IconButton.styleFrom(
+                minimumSize: const Size(28, 28),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
             ),
-          ),
-          // Balance badge
-          if (customer.balance > 0) ...[
-            StatusBadge.warning('Owes Rs. ${Fmt.pkrShort(customer.balance)}'),
-            const SizedBox(width: 8),
           ],
-          // Edit
-          IconButton(
-            icon: const Icon(Icons.edit_rounded, size: 14, color: D.fgTertiary),
-            onPressed: onEdit,
-            style: IconButton.styleFrom(
-              minimumSize: const Size(28, 28),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BalanceBadge extends StatelessWidget {
+  final double balance; // internal: >0 owes, <0 advance/credit
+  const _BalanceBadge({required this.balance});
+
+  @override
+  Widget build(BuildContext context) {
+    final owes = balance > 0;
+    // Display flips the sign, same as the khata detail screen:
+    //   owes  → − Rs. X (warning)   |   advance/credit → + Rs. X (brand)
+    final (bg, fg, border, text) = owes
+        ? (
+            D.warning50,
+            D.warning500,
+            const Color(0x33B07013), // warning500 @ ~20%
+            '− Rs. ${Fmt.pkrShort(balance.abs())}',
+          )
+        : (
+            D.brand50,
+            D.brand600,
+            const Color(0x330B6B43), // brand500 @ ~20%
+            '+ Rs. ${Fmt.pkrShort(balance.abs())}',
+          );
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 1.2.w, vertical: 0.4.h),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: border),
+      ),
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontFamily: 'JetBrains Mono',
+          fontSize: 11.5.sp,
+          fontWeight: FontWeight.w700,
+          color: fg,
+        ),
       ),
     );
   }
@@ -288,87 +360,88 @@ class _CDState extends ConsumerState<_CustomerDialog> {
     final isNew = widget.customer == null;
     return Dialog(
       child: Container(
-        width: 440,
-        padding: const EdgeInsets.all(24),
+        width: 90.w.clamp(360.0, 460.0),
+        padding: EdgeInsets.all(3.w),
         child: Form(
           key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    isNew ? 'Add Customer' : 'Edit Customer',
-                    style: const TextStyle(
-                      fontFamily: 'Instrument Serif',
-                      fontSize: 24,
-                      color: D.ink800,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      isNew ? 'Add Customer' : 'Edit Customer',
+                      style: TextStyle(
+                        fontFamily: 'Instrument Serif',
+                        fontSize: 15.sp,
+                        color: D.ink800,
+                      ),
                     ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded, size: 18),
-                    onPressed: () => Navigator.pop(context),
-                    style: IconButton.styleFrom(foregroundColor: D.fgTertiary),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              ErpField(
-                label: 'Full Name',
-                controller: _nameCtrl,
-                required: true,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? 'Required' : null,
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: ErpField(
-                      label: 'Phone',
-                      controller: _phoneCtrl,
-                      keyboardType: TextInputType.phone,
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 18),
+                      onPressed: () => Navigator.pop(context),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ErpField(label: 'CNIC', controller: _cnicCtrl),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: ErpField(
-                      label: 'NTN (for FBR)',
-                      controller: _ntnCtrl,
+                  ],
+                ),
+                SizedBox(height: 2.h),
+                ErpField(
+                  label: 'Full Name',
+                  controller: _nameCtrl,
+                  required: true,
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'Required' : null,
+                ),
+                SizedBox(height: 1.4.h),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ErpField(
+                        label: 'Phone',
+                        controller: _phoneCtrl,
+                        keyboardType: TextInputType.phone,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ErpField(label: 'Address', controller: _addrCtrl),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Cancel'),
-                  ),
-                  const SizedBox(width: 10),
-                  ElevatedButton(
-                    onPressed: _save,
-                    child: Text(isNew ? 'Add' : 'Save'),
-                  ),
-                ],
-              ),
-            ],
+                    SizedBox(width: 1.5.w),
+                    Expanded(
+                      child: ErpField(label: 'CNIC', controller: _cnicCtrl),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 1.4.h),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ErpField(
+                        label: 'NTN (for FBR / B2B)',
+                        controller: _ntnCtrl,
+                      ),
+                    ),
+                    SizedBox(width: 1.5.w),
+                    Expanded(
+                      child: ErpField(label: 'Address', controller: _addrCtrl),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 2.5.h),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    SizedBox(width: 1.5.w),
+                    ElevatedButton(
+                      onPressed: _save,
+                      child: Text(isNew ? 'Add' : 'Save'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

@@ -4,18 +4,17 @@ import 'package:drift/drift.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:sizer/sizer.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/constants/views.dart';
-import '../../../core/database/app_database.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/error_handler.dart';
+import '../widgets/discount_dialog.dart';
 import '../widgets/payment_dialog.dart';
 import '../widgets/product_search_field.dart';
 
-// ── Isolated provider so the product grid never rebuilds ──
-// due to cart changes, search text changes, or sync ticks.
-// It only rebuilds when the DB stream emits new products.
+// Product grid stream — isolated so it only rebuilds on DB changes.
 final _posProductsProvider = StreamProvider.autoDispose
     .family<List<Product>, String>((ref, tenantId) {
       final db = ref.watch(databaseProvider);
@@ -30,6 +29,18 @@ final _posProductsProvider = StreamProvider.autoDispose
             ..limit(40))
           .watch();
     });
+// Live stock map (productId → qtyOnHand) for the current branch.
+// Watched by cart lines (to show stock) and the footer (to block checkout).
+// valueOrNull is null only while the stream is still loading.
+final _branchStockProvider = StreamProvider.autoDispose<Map<String, double>>((
+  ref,
+) {
+  final db = ref.watch(databaseProvider);
+  final branchId = ref.watch(currentBranchIdProvider);
+  return (db.select(db.inventory)..where((t) => t.branchId.equals(branchId)))
+      .watch()
+      .map((rows) => {for (final r in rows) r.productId: r.qtyOnHand});
+});
 
 class PosScreen extends ConsumerStatefulWidget {
   const PosScreen({super.key});
@@ -64,6 +75,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     switch (e.logicalKey) {
       case LogicalKeyboardKey.f1:
         _searchFocus.requestFocus();
+      case LogicalKeyboardKey.f2:
+        _openCustomerPicker();
       case LogicalKeyboardKey.f10:
         _openPayment();
       case LogicalKeyboardKey.f12:
@@ -90,7 +103,50 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     }
   }
 
+  void _openCustomerPicker() =>
+      showDialog(context: context, builder: (_) => const CustomerPicker());
+
+  void _openDiscount() {
+    final cart = ref.read(cartProvider);
+    if (cart.isEmpty) {
+      AppErrorHandler.showInfo(context, 'Add items first');
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (_) => DiscountDialog(base: cart.itemsTotal),
+    );
+  }
+
   void _addProduct(Product p, double qty) {
+    final stockMap = ref.read(_branchStockProvider).asData?.value;
+    if (stockMap != null) {
+      final available = stockMap[p.id] ?? 0;
+      final inCart = ref
+          .read(cartProvider)
+          .items
+          .firstWhere(
+            (i) => i.productId == p.id,
+            orElse: () => CartItem(
+              productId: '',
+              name: '',
+              pctCode: '',
+              unitPrice: 0,
+              taxRate: 0,
+            ),
+          )
+          .quantity;
+      // block when this add would push the line over available stock
+      if (inCart + qty > available) {
+        AppErrorHandler.showInfo(
+          context,
+          available <= 0
+              ? '${p.name} is out of stock'
+              : 'Only ${Fmt.qty(available)} of ${p.name} in stock',
+        );
+        return;
+      }
+    }
     ref
         .read(cartProvider.notifier)
         .addItem(
@@ -99,6 +155,7 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             name: p.name,
             pctCode: p.pctCode,
             unitPrice: p.salePrice,
+            mrp: p.mrp,
             taxRate: p.isTaxExempt ? 0.0 : p.taxRate ?? 17.0,
             quantity: qty,
           ),
@@ -112,6 +169,21 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     if (cart.isEmpty) {
       AppErrorHandler.showInfo(context, 'Cart is empty');
       return;
+    }
+    final stockMap = ref.read(_branchStockProvider).asData?.value;
+    if (stockMap != null) {
+      final blocked = cart.items
+          .where((i) => i.quantity > (stockMap[i.productId] ?? 0))
+          .toList();
+      if (blocked.isNotEmpty) {
+        AppErrorHandler.showInfo(
+          context,
+          blocked.length == 1
+              ? 'Not enough stock for ${blocked.first.name}'
+              : '${blocked.length} items exceed available stock — cannot checkout',
+        );
+        return;
+      }
     }
     showDialog(
       context: context,
@@ -156,8 +228,10 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                   invoiceDate: now,
                   paymentMode: Value(mode),
                   cashierId: user?.id ?? 'offline',
+                  customerId: Value(cart.customerId),
+                  cartDiscount: Value(cart.cartDiscount),
                   subtotal: Value(cart.subtotal),
-                  discountAmount: Value(cart.totalDiscount),
+                  discountAmount: Value(cart.totalDiscount + cart.cartDiscount),
                   taxableAmount: Value(cart.subtotal - cart.totalDiscount),
                   totalSalesTax: Value(cart.totalTax),
                   totalWithTax: Value(cart.totalWithTax),
@@ -202,6 +276,23 @@ class _PosScreenState extends ConsumerState<PosScreen> {
             );
           }
         });
+
+        // Credit (udhaar): log the unpaid remainder to the customer ledger.
+        if (mode == 'credit' && cart.customerId != null) {
+          final owed = (cart.totalWithTax - paid)
+              .clamp(0, cart.totalWithTax)
+              .toDouble();
+          if (owed > 0) {
+            await CustomerLedger(db).recordCreditSale(
+              tenantId: tenantId,
+              customerId: cart.customerId!,
+              amount: owed,
+              invoiceId: invId,
+              note: 'Invoice $invNum',
+            );
+          }
+        }
+
         ref.read(cartProvider.notifier).clear();
         ref.invalidate(dashStatsProvider);
         ref.read(fbrServiceProvider).fiscalize(invId).ignore();
@@ -226,7 +317,6 @@ class _PosScreenState extends ConsumerState<PosScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Only watch what the POS chrome needs — cart is passed to _Cart
     final cart = ref.watch(cartProvider);
     final bizType = ref.watch(businessTypeProvider);
     final tenantId = ref.watch(currentTenantIdProvider);
@@ -240,34 +330,37 @@ class _PosScreenState extends ConsumerState<PosScreen> {
           children: [
             _PosHeader(bizType: bizType),
             Expanded(
-              child: Row(
-                children: [
-                  // Left — search + product grid
-                  // _PosLeft is a separate StatefulWidget so its own
-                  // local search state never triggers a cart rebuild
-                  Expanded(
-                    child: _PosLeft(
-                      tenantId: tenantId,
-                      bizType: bizType,
-                      searchCtrl: _searchCtrl,
-                      searchFocus: _searchFocus,
-                      onAdd: _addProduct,
-                    ),
-                  ),
-                  // Right — cart
-                  // Watches cartProvider internally so only this widget
-                  // rebuilds on cart changes
-                  SizedBox(
-                    width: 380,
-                    child: _Cart(
-                      cart: cart,
-                      selIdx: _selIdx,
-                      onSelect: (i) => setState(() => _selIdx = i),
-                      onPay: _openPayment,
-                      onClear: _clearCart,
-                    ),
-                  ),
-                ],
+              child: LayoutBuilder(
+                builder: (context, c) {
+                  // Responsive cart width: ~32% of width, clamped 320–420.
+                  final cartW = (c.maxWidth * 0.32).clamp(320.0, 420.0);
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: _PosLeft(
+                          tenantId: tenantId,
+                          bizType: bizType,
+                          searchCtrl: _searchCtrl,
+                          searchFocus: _searchFocus,
+                          onAdd: _addProduct,
+                          onCustomer: _openCustomerPicker,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cartW,
+                        child: _Cart(
+                          cart: cart,
+                          selIdx: _selIdx,
+                          onSelect: (i) => setState(() => _selIdx = i),
+                          onPay: _openPayment,
+                          onClear: _clearCart,
+                          onDiscount: _openDiscount,
+                          onCustomer: _openCustomerPicker,
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
             ShortcutBar(
@@ -288,14 +381,14 @@ class _PosScreenState extends ConsumerState<PosScreen> {
   }
 }
 
-// ── Left panel owns only its own search state ─────────────
-// Cart changes, sync ticks, locale changes → never rebuild this.
+// ── Left panel ────────────────────────────────────────────
 class _PosLeft extends ConsumerStatefulWidget {
   final String tenantId;
   final BusinessType bizType;
   final TextEditingController searchCtrl;
   final FocusNode searchFocus;
   final void Function(Product, double) onAdd;
+  final VoidCallback onCustomer;
 
   const _PosLeft({
     required this.tenantId,
@@ -303,6 +396,7 @@ class _PosLeft extends ConsumerStatefulWidget {
     required this.searchCtrl,
     required this.searchFocus,
     required this.onAdd,
+    required this.onCustomer,
   });
 
   @override
@@ -315,7 +409,7 @@ class _PosLeftState extends ConsumerState<_PosLeft> {
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(2.w),
           color: D.bgSurface,
           child: Column(
             children: [
@@ -329,38 +423,39 @@ class _PosLeftState extends ConsumerState<_PosLeft> {
                       onSelected: widget.onAdd,
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 1.w),
                   OutlinedButton.icon(
                     onPressed: () {},
-                    icon: const Icon(Icons.barcode_reader, size: 14),
-                    label: const Text('Scan'),
+                    icon: Icon(Icons.barcode_reader, size: 12.sp),
+                    label: Text('Scan', style: TextStyle(fontSize: 10.sp)),
                     style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(0, 32),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      minimumSize: Size(0, 4.h),
+                      padding: EdgeInsets.symmetric(horizontal: 1.5.w),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  SizedBox(width: 1.w),
                   OutlinedButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(Icons.person_add_outlined, size: 14),
+                    onPressed: widget.onCustomer,
+                    icon: Icon(Icons.person_add_outlined, size: 12.sp),
                     label: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text('Customer'),
-                        const SizedBox(width: 6),
+                        Text('Customer', style: TextStyle(fontSize: 10.sp)),
+                        SizedBox(width: 0.6.w),
                         Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 1,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 0.5.w,
+                            vertical: 0.1.h,
                           ),
                           decoration: BoxDecoration(
                             border: Border.all(color: D.borderDefault),
                             borderRadius: BorderRadius.circular(3),
                           ),
-                          child: const Text(
+                          child: Text(
                             'F2',
                             style: TextStyle(
                               fontFamily: 'JetBrains Mono',
-                              fontSize: 10,
+                              fontSize: 8.5.sp,
                               color: D.fgSecondary,
                             ),
                           ),
@@ -368,29 +463,32 @@ class _PosLeftState extends ConsumerState<_PosLeft> {
                       ],
                     ),
                     style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(0, 32),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      minimumSize: Size(0, 4.h),
+                      padding: EdgeInsets.symmetric(horizontal: 1.5.w),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              SizedBox(height: 1.2.h),
               SizedBox(
-                height: 22,
-                child: Row(
+                height: 3.h,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
                   children: [
-                    const Text(
-                      'Quick:',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 12,
-                        color: D.fgTertiary,
+                    Padding(
+                      padding: EdgeInsets.only(right: 1.w, top: 0.4.h),
+                      child: Text(
+                        'Quick:',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 10.sp,
+                          color: D.fgTertiary,
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 8),
                     ..._categories(widget.bizType).map(
                       (c) => Padding(
-                        padding: const EdgeInsets.only(right: 6),
+                        padding: EdgeInsets.only(right: 0.6.w),
                         child: StatusBadge.neutral(c),
                       ),
                     ),
@@ -404,8 +502,6 @@ class _PosLeftState extends ConsumerState<_PosLeft> {
         Expanded(
           child: Container(
             color: D.bgApp,
-            // _ProductGrid watches its own isolated stream provider.
-            // It only rebuilds when DB products change — never on cart changes.
             child: _ProductGrid(tenantId: widget.tenantId, onTap: widget.onAdd),
           ),
         ),
@@ -421,7 +517,7 @@ class _PosLeftState extends ConsumerState<_PosLeft> {
   };
 }
 
-// ── Product grid — watches isolated StreamProvider ───────
+// ── Product grid ──────────────────────────────────────────
 class _ProductGrid extends ConsumerWidget {
   final String tenantId;
   final void Function(Product, double) onTap;
@@ -443,11 +539,11 @@ class _ProductGrid extends ConsumerWidget {
           );
         }
         return GridView.builder(
-          padding: const EdgeInsets.all(16),
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 155,
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
+          padding: EdgeInsets.all(2.w),
+          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 20.w.clamp(140.0, 175.0),
+            mainAxisSpacing: 1.5.h,
+            crossAxisSpacing: 1.5.w,
             childAspectRatio: 1.05,
           ),
           itemCount: list.length,
@@ -459,7 +555,7 @@ class _ProductGrid extends ConsumerWidget {
   }
 }
 
-// ── Product tile — pure StatelessWidget, const-safe ──────
+// ── Product tile ──────────────────────────────────────────
 class _ProductTile extends StatelessWidget {
   final Product p;
   final VoidCallback onTap;
@@ -467,6 +563,7 @@ class _ProductTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasMrp = p.mrp != null && p.mrp! > p.salePrice;
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -494,36 +591,50 @@ class _ProductTile extends StatelessWidget {
                 alignment: Alignment.center,
                 child: Text(
                   p.sku ?? p.name.substring(0, 2).toUpperCase(),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'JetBrains Mono',
-                    fontSize: 10,
+                    fontSize: 9.sp,
                     color: D.fgTertiary,
                   ),
                 ),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.all(10),
+              padding: EdgeInsets.all(1.2.w),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     p.name,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Inter',
-                      fontSize: 12.5,
+                      fontSize: 10.5.sp,
                       fontWeight: FontWeight.w500,
                       color: D.fgPrimary,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 2),
+                  SizedBox(height: 0.3.h),
+                  if (hasMrp)
+                    Text(
+                      'Rs. ${Fmt.pkrShort(p.mrp!)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: 'JetBrains Mono',
+                        fontSize: 8.5.sp,
+                        color: D.fgTertiary,
+                        decoration: TextDecoration.lineThrough,
+                      ),
+                    ),
                   Text(
                     'Rs. ${Fmt.pkrShort(p.salePrice)}',
-                    style: const TextStyle(
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
                       fontFamily: 'JetBrains Mono',
-                      fontSize: 12,
+                      fontSize: 10.sp,
                       fontWeight: FontWeight.w600,
                       color: D.brand700,
                     ),
@@ -546,28 +657,32 @@ class _PosHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 44,
+      height: 6.h,
       decoration: const BoxDecoration(
         color: D.bgSurface,
         border: Border(bottom: BorderSide(color: D.borderDefault)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: EdgeInsets.symmetric(horizontal: 2.5.w),
       child: Row(
         children: [
-          const Icon(Icons.point_of_sale_rounded, size: 15, color: D.brand500),
-          const SizedBox(width: 8),
-          Text(
-            '${bizType.saleLabel} Terminal',
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: D.fgPrimary,
+          Icon(Icons.point_of_sale_rounded, size: 13.sp, color: D.brand500),
+          SizedBox(width: 1.w),
+          Flexible(
+            child: Text(
+              '${bizType.saleLabel} Terminal',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 11.sp,
+                fontWeight: FontWeight.w600,
+                color: D.fgPrimary,
+              ),
             ),
           ),
-          const SizedBox(width: 14),
+          SizedBox(width: 1.5.w),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            padding: EdgeInsets.symmetric(horizontal: 1.2.w, vertical: 0.3.h),
             decoration: BoxDecoration(
               color: D.bgCream,
               borderRadius: BorderRadius.circular(4),
@@ -575,16 +690,16 @@ class _PosHeader extends StatelessWidget {
             ),
             child: Text(
               'INV-${DateTime.now().millisecondsSinceEpoch.toString().substring(8)} · draft',
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: 'JetBrains Mono',
-                fontSize: 11,
+                fontSize: 9.sp,
                 color: D.fgSecondary,
               ),
             ),
           ),
           const Spacer(),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            padding: EdgeInsets.symmetric(horizontal: 1.w, vertical: 0.3.h),
             decoration: BoxDecoration(
               color: D.success50,
               borderRadius: BorderRadius.circular(4),
@@ -594,19 +709,25 @@ class _PosHeader extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 6,
-                  height: 6,
+                  width: 1.5.w,
+                  height: 1.5.w,
+                  constraints: const BoxConstraints(
+                    maxWidth: 7,
+                    maxHeight: 7,
+                    minWidth: 5,
+                    minHeight: 5,
+                  ),
                   decoration: const BoxDecoration(
                     shape: BoxShape.circle,
                     color: D.brand500,
                   ),
                 ),
-                const SizedBox(width: 5),
-                const Text(
+                SizedBox(width: 0.5.w),
+                Text(
                   'FBR connected',
                   style: TextStyle(
                     fontFamily: 'Inter',
-                    fontSize: 10.5,
+                    fontSize: 9.sp,
                     fontWeight: FontWeight.w600,
                     color: D.success700,
                     letterSpacing: 0.04,
@@ -628,6 +749,8 @@ class _Cart extends ConsumerWidget {
   final void Function(int) onSelect;
   final VoidCallback onPay;
   final Future<void> Function() onClear;
+  final VoidCallback onDiscount;
+  final VoidCallback onCustomer;
 
   const _Cart({
     required this.cart,
@@ -635,10 +758,19 @@ class _Cart extends ConsumerWidget {
     required this.onSelect,
     required this.onPay,
     required this.onClear,
+    required this.onDiscount,
+    required this.onCustomer,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final stockMap = ref.watch(_branchStockProvider).asData?.value;
+    final outOfStockItems = stockMap == null
+        ? const <CartItem>[] // still loading → don't block
+        : cart.items
+              .where((i) => i.quantity > (stockMap[i.productId] ?? 0))
+              .toList();
+    final hasOutOfStock = outOfStockItems.isNotEmpty;
     return Container(
       decoration: const BoxDecoration(
         color: D.bgSurface,
@@ -646,74 +778,111 @@ class _Cart extends ConsumerWidget {
       ),
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-            child: Row(
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Current sale',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: D.fgPrimary,
+          // Header — customer aware + tappable to attach/change
+          InkWell(
+            onTap: onCustomer,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(2.w, 1.6.h, 2.w, 1.6.h),
+              child: Row(
+                children: [
+                  Container(
+                    width: 4.w,
+                    height: 4.w,
+                    constraints: const BoxConstraints(
+                      maxWidth: 34,
+                      maxHeight: 34,
+                      minWidth: 26,
+                      minHeight: 26,
+                    ),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: cart.hasCustomer ? D.brand50 : D.neutral100,
+                      border: Border.all(
+                        color: cart.hasCustomer ? D.brand100 : D.borderDefault,
                       ),
                     ),
-                    Text(
-                      'draft · ${cart.items.length} items',
-                      style: const TextStyle(
-                        fontFamily: 'JetBrains Mono',
-                        fontSize: 11,
-                        color: D.fgTertiary,
-                      ),
-                    ),
-                  ],
-                ),
-                const Spacer(),
-                if (!cart.isEmpty)
-                  TextButton.icon(
-                    onPressed: onClear,
-                    icon: const Icon(Icons.delete_outline_rounded, size: 14),
-                    label: const Text('Clear'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: D.danger500,
-                      minimumSize: const Size(0, 28),
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      cart.hasCustomer
+                          ? Icons.person_rounded
+                          : Icons.person_outline_rounded,
+                      size: 11.sp,
+                      color: cart.hasCustomer ? D.brand600 : D.fgTertiary,
                     ),
                   ),
-              ],
+                  SizedBox(width: 1.5.w),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          cart.hasCustomer ? cart.customerName! : 'Walk-in',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12.sp,
+                            fontWeight: FontWeight.w600,
+                            color: D.fgPrimary,
+                          ),
+                        ),
+                        Text(
+                          cart.hasCustomer
+                              ? 'Billing customer · ${cart.items.length} items'
+                              : 'Tap to attach · ${cart.items.length} items',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: 'JetBrains Mono',
+                            fontSize: 9.sp,
+                            color: D.fgTertiary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!cart.isEmpty)
+                    TextButton.icon(
+                      onPressed: onClear,
+                      icon: Icon(Icons.delete_outline_rounded, size: 11.sp),
+                      label: Text('Clear', style: TextStyle(fontSize: 10.sp)),
+                      style: TextButton.styleFrom(
+                        foregroundColor: D.danger500,
+                        minimumSize: Size(0, 3.5.h),
+                        padding: EdgeInsets.symmetric(horizontal: 1.w),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
           const Divider(height: 1, color: D.borderDefault),
           Expanded(
             child: cart.isEmpty
-                ? const Center(
+                ? Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
                           Icons.shopping_cart_outlined,
-                          size: 24,
+                          size: 22.sp,
                           color: D.fgTertiary,
                         ),
-                        SizedBox(height: 10),
+                        SizedBox(height: 1.h),
                         Text(
                           'Cart is empty.',
                           style: TextStyle(
                             fontFamily: 'Inter',
-                            fontSize: 13,
+                            fontSize: 11.sp,
                             color: D.fgTertiary,
                           ),
                         ),
-                        SizedBox(height: 4),
+                        SizedBox(height: 0.4.h),
                         Text(
                           'Scan or click a product to add.',
                           style: TextStyle(
                             fontFamily: 'Inter',
-                            fontSize: 12,
+                            fontSize: 10.sp,
                             color: D.fgTertiary,
                           ),
                         ),
@@ -727,26 +896,123 @@ class _Cart extends ConsumerWidget {
                       index: i,
                       selected: selIdx == i,
                       onTap: () => onSelect(i),
+                      stock:
+                          stockMap?[cart
+                              .items[i]
+                              .productId], // null = still loading
                     ),
                   ),
           ),
           if (!cart.isEmpty) ...[
             const Divider(height: 1, color: D.borderDefault),
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(2.w),
               child: Column(
                 children: [
                   _SumRow('Subtotal', 'Rs. ${Fmt.pkrShort(cart.subtotal)}'),
                   if (cart.totalDiscount > 0)
                     _SumRow(
-                      'Discount',
+                      'Item discount',
                       '− Rs. ${Fmt.pkrShort(cart.totalDiscount)}',
                       color: D.danger500,
                     ),
-                  _SumRow('GST (17%)', 'Rs. ${Fmt.pkrShort(cart.totalTax)}'),
-                  const SizedBox(height: 6),
+                  _SumRow('GST', 'Rs. ${Fmt.pkrShort(cart.totalTax)}'),
+
+                  // ── Cart-level discount row (tappable) ──
+                  SizedBox(height: 0.4.h),
+                  InkWell(
+                    onTap: onDiscount,
+                    borderRadius: BorderRadius.circular(6),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 0.5.w,
+                        vertical: 0.6.h,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.percent_rounded,
+                                size: 11.sp,
+                                color: D.gold600,
+                              ),
+                              SizedBox(width: 1.w),
+                              Text(
+                                cart.cartDiscount > 0
+                                    ? 'Cart discount'
+                                    : 'Add discount',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 11.sp,
+                                  fontWeight: FontWeight.w600,
+                                  color: D.gold600,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            cart.cartDiscount > 0
+                                ? '− Rs. ${Fmt.pkrShort(cart.cartDiscount)}'
+                                : 'Tap',
+                            style: TextStyle(
+                              fontFamily: 'JetBrains Mono',
+                              fontSize: 11.sp,
+                              color: cart.cartDiscount > 0
+                                  ? D.danger500
+                                  : D.fgTertiary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  SizedBox(height: 0.6.h),
+                  if (hasOutOfStock) ...[
+                    SizedBox(height: 0.8.h),
+                    Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 1.5.w,
+                        vertical: 0.8.h,
+                      ),
+                      decoration: BoxDecoration(
+                        color: D.danger50,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: const Color(0x339C2922)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.warning_amber_rounded,
+                            size: 11.sp,
+                            color: D.danger500,
+                          ),
+                          SizedBox(width: 1.w),
+                          Expanded(
+                            child: Text(
+                              outOfStockItems.length == 1
+                                  ? 'Not enough stock for ${outOfStockItems.first.name}'
+                                  : '${outOfStockItems.length} items exceed available stock',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 9.5.sp,
+                                fontWeight: FontWeight.w600,
+                                color: D.danger700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  SizedBox(height: 0.6.h),
                   Container(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    padding: EdgeInsets.symmetric(vertical: 1.h),
                     decoration: const BoxDecoration(
                       border: Border.symmetric(
                         horizontal: BorderSide(color: D.borderDefault),
@@ -755,37 +1021,46 @@ class _Cart extends ConsumerWidget {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
+                        Text(
                           'Total',
                           style: TextStyle(
                             fontFamily: 'Inter',
-                            fontSize: 20,
+                            fontSize: 16.sp,
                             fontWeight: FontWeight.w600,
                             color: D.fgPrimary,
                           ),
                         ),
-                        Text(
-                          'Rs. ${Fmt.pkrShort(cart.totalWithTax)}',
-                          style: const TextStyle(
-                            fontFamily: 'JetBrains Mono',
-                            fontSize: 20,
-                            fontWeight: FontWeight.w600,
-                            color: D.fgPrimary,
-                            fontFeatures: [FontFeature.tabularFigures()],
+                        Flexible(
+                          child: Text(
+                            'Rs. ${Fmt.pkrShort(cart.totalWithTax)}',
+                            textAlign: TextAlign.right,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: 'JetBrains Mono',
+                              fontSize: 16.sp,
+                              fontWeight: FontWeight.w600,
+                              color: D.fgPrimary,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  SizedBox(height: 1.2.h),
                   SizedBox(
                     width: double.infinity,
-                    height: 40,
+                    height: 5.h,
                     child: ElevatedButton(
-                      onPressed: onPay,
+                      onPressed: hasOutOfStock ? null : onPay,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: D.brand500,
                         foregroundColor: Colors.white,
+                        disabledBackgroundColor: D.neutral200,
+                        disabledForegroundColor: D.fgTertiary,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(4),
                         ),
@@ -794,29 +1069,30 @@ class _Cart extends ConsumerWidget {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Text(
+                          Text(
                             'Checkout',
                             style: TextStyle(
                               fontFamily: 'Inter',
-                              fontSize: 14,
+                              fontSize: 12.sp,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                          const SizedBox(width: 10),
+                          SizedBox(width: 1.5.w),
                           Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 1.w,
+                              vertical: 0.2.h,
                             ),
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(3),
                             ),
-                            child: const Text(
+                            child: Text(
                               'F10',
                               style: TextStyle(
                                 fontFamily: 'JetBrains Mono',
-                                fontSize: 11,
+                                fontSize: 9.sp,
+                                color: Colors.white,
                               ),
                             ),
                           ),
@@ -839,84 +1115,152 @@ class _CartLine extends ConsumerWidget {
   final int index;
   final bool selected;
   final VoidCallback onTap;
+  final double? stock; // live on-hand; null while loading
+
   const _CartLine({
     required this.item,
     required this.index,
     required this.selected,
     required this.onTap,
+    required this.stock,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cart = ref.read(cartProvider.notifier);
+
+    final stockMap = ref.watch(_branchStockProvider).asData?.value;
+    final stockKnown = stockMap != null;
+    final stock = stockMap?[item.productId] ?? 0.0; // no row → 0
+    final outOfStock = stockKnown && stock <= 0;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 100),
         color: selected ? D.brand50 : Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: EdgeInsets.symmetric(horizontal: 1.5.w, vertical: 1.2.h),
         child: Row(
           children: [
+            // Name + unit price — flexes to fill leftover space
             Expanded(
+              flex: 5,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     item.name,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: 'Inter',
-                      fontSize: 13,
+                      fontSize: 12.sp,
                       fontWeight: FontWeight.w500,
                       color: D.fgPrimary,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  Text(
-                    'Rs. ${Fmt.pkrShort(item.unitPrice)} ea',
-                    style: const TextStyle(
-                      fontFamily: 'JetBrains Mono',
-                      fontSize: 11,
-                      color: D.fgTertiary,
-                    ),
+                  Row(
+                    children: [
+                      if (item.hasMrpDiscount) ...[
+                        Flexible(
+                          child: Text(
+                            'Rs. ${Fmt.pkrShort(item.mrp!)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: 'JetBrains Mono',
+                              fontSize: 9.5.sp,
+                              color: D.fgTertiary,
+                              decoration: TextDecoration.lineThrough,
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: 1.w),
+                      ],
+                      Flexible(
+                        child: Text(
+                          'Rs. ${Fmt.pkrShort(item.unitPrice)} ea',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: 'JetBrains Mono',
+                            fontSize: 8.5.sp,
+                            color: D.ink800,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
+                  // ── stock line, shown after the price ──
+                  if (stockKnown) ...[
+                    SizedBox(height: 0.2.h),
+                    Text(
+                      outOfStock
+                          ? 'Out of stock'
+                          : 'In stock: ${Fmt.qty(stock)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: 'JetBrains Mono',
+                        fontSize: 9.5.sp,
+                        fontWeight: outOfStock
+                            ? FontWeight.w700
+                            : FontWeight.w400,
+                        color: outOfStock ? D.danger500 : D.fgTertiary,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
-            Row(
-              children: [
-                _QBtn(
-                  Icons.remove_rounded,
-                  () => cart.updateQty(index, item.quantity - 1),
-                ),
-                SizedBox(
-                  width: 28,
-                  child: Center(
-                    child: Text(
-                      Fmt.qty(item.quantity),
-                      style: const TextStyle(
-                        fontFamily: 'JetBrains Mono',
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        color: D.fgPrimary,
-                      ),
-                    ),
-                  ),
-                ),
-                _QBtn(
-                  Icons.add_rounded,
-                  () => cart.updateQty(index, item.quantity + 1),
-                ),
-              ],
+
+            SizedBox(width: 1.w),
+
+            // Qty stepper — compact, fixed-small, never shrinks
+            _QBtn(
+              Icons.remove_rounded,
+              () => cart.updateQty(index, item.quantity - 1),
             ),
             SizedBox(
-              width: 68,
+              width: 24,
+              child: Center(
+                child: Text(
+                  Fmt.qty(item.quantity),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'JetBrains Mono',
+                    fontSize: 10.sp,
+                    fontWeight: FontWeight.w600,
+                    color: D.fgPrimary,
+                  ),
+                ),
+              ),
+            ),
+            _QBtn(Icons.add_rounded, () {
+              // Strict: never let cart qty exceed live stock.
+              if (stock != null && item.quantity + 1 > stock!) {
+                AppErrorHandler.showInfo(
+                  context,
+                  'Only ${Fmt.qty(stock!)} in stock',
+                );
+                return;
+              }
+              cart.updateQty(index, item.quantity + 1);
+            }),
+
+            SizedBox(width: 1.w),
+
+            // Line total — flexes, right-aligned, ellipsis if huge
+            Expanded(
+              flex: 3,
               child: Text(
                 'Rs. ${Fmt.pkrShort(item.lineTotal)}',
                 textAlign: TextAlign.right,
-                style: const TextStyle(
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
                   fontFamily: 'JetBrains Mono',
-                  fontSize: 13,
+                  fontSize: 11.sp,
                   fontWeight: FontWeight.w600,
                   color: D.fgPrimary,
                 ),
@@ -938,15 +1282,21 @@ class _QBtn extends StatelessWidget {
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
     child: Container(
-      width: 22,
-      height: 22,
+      width: 5.w,
+      height: 5.w,
+      constraints: const BoxConstraints(
+        maxWidth: 24,
+        maxHeight: 24,
+        minWidth: 20,
+        minHeight: 20,
+      ),
       decoration: BoxDecoration(
         border: Border.all(color: D.borderDefault),
         borderRadius: BorderRadius.circular(4),
         color: D.bgSurface,
       ),
       alignment: Alignment.center,
-      child: Icon(icon, size: 12, color: D.fgSecondary),
+      child: Icon(icon, size: 10.sp, color: D.fgSecondary),
     ),
   );
 }
@@ -958,15 +1308,15 @@ class _SumRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 3),
+    padding: EdgeInsets.symmetric(vertical: 0.4.h),
     child: Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontFamily: 'Inter',
-            fontSize: 13,
+            fontSize: 11.sp,
             color: D.fgSecondary,
           ),
         ),
@@ -974,7 +1324,7 @@ class _SumRow extends StatelessWidget {
           value,
           style: TextStyle(
             fontFamily: 'JetBrains Mono',
-            fontSize: 13,
+            fontSize: 11.sp,
             color: color ?? D.fgPrimary,
             fontFeatures: const [FontFeature.tabularFigures()],
           ),

@@ -38,13 +38,17 @@ class AppErrorHandler {
       return 'Request timed out. Please try again.';
     }
     if (error is PostgrestException) {
-      return _cleanText(_bestOf([error.hint, error.details?.toString(), error.message]));
+      return _cleanText(
+        _bestOf([error.hint, error.details?.toString(), error.message]),
+      );
     }
     if (error is AuthException) {
       return _cleanText(_parseJsonMessage(error.message));
     }
     if (error is FunctionException) {
-      return _cleanText(error.reasonPhrase ?? error.details?.toString() ?? 'Server error.');
+      return _cleanText(
+        error.reasonPhrase ?? error.details?.toString() ?? 'Server error.',
+      );
     }
     if (error is Exception) {
       return _cleanText(_parseExceptionString(error.toString()));
@@ -72,12 +76,20 @@ class AppErrorHandler {
     _log.i('Info: $message');
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Row(children: [
-          const Icon(Icons.info_outline_rounded, color: Colors.white, size: 18),
-          const SizedBox(width: 10),
-          Expanded(child: Text(message, style: const TextStyle(fontSize: 13))),
-        ]),
-        backgroundColor: const Color(0xFF3B82F6),
+        content: Row(
+          children: [
+            const Icon(
+              Icons.info_outline_rounded,
+              color: Colors.white,
+              size: 18,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(message, style: const TextStyle(fontSize: 13)),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.redAccent.shade700,
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -122,30 +134,42 @@ class AppErrorHandler {
   }
 
   // ── Private helpers ────────────────────────────
-  static void _showSnackbar(BuildContext context, String msg,
-      {required bool isError}) {
+  static void _showSnackbar(
+    BuildContext context,
+    String msg, {
+    required bool isError,
+  }) {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(
         SnackBar(
-          content: Row(children: [
-            Icon(
-              isError ? Icons.error_outline_rounded : Icons.check_circle_rounded,
-              color: Colors.white,
-              size: 18,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(msg,
-                  style: const TextStyle(fontSize: 13, color: Colors.white)),
-            ),
-          ]),
-          backgroundColor:
-              isError ? const Color(0xFFEF4444) : const Color(0xFF22C55E),
+          content: Row(
+            children: [
+              Icon(
+                isError
+                    ? Icons.error_outline_rounded
+                    : Icons.check_circle_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  msg,
+                  style: const TextStyle(fontSize: 13, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: isError
+              ? const Color(0xFFEF4444)
+              : const Color(0xFF22C55E),
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.all(12),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           duration: Duration(seconds: isError ? 4 : 3),
         ),
       );
@@ -153,7 +177,8 @@ class AppErrorHandler {
 
   static String _bestOf(List<String?> candidates) {
     for (final s in candidates) {
-      if (s != null && s.trim().isNotEmpty && s.trim() != 'null') return s.trim();
+      if (s != null && s.trim().isNotEmpty && s.trim() != 'null')
+        return s.trim();
     }
     return 'An unexpected error occurred.';
   }

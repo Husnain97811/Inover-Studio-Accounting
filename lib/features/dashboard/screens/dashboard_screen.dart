@@ -446,6 +446,8 @@ class _SyncRow extends StatelessWidget {
 }
 
 // ── Recent invoices table ─────────────────────────────────
+// routes "View all" to /invoices.
+
 class _RecentInvoices extends StatelessWidget {
   final List<Map<String, dynamic>> invoices;
   const _RecentInvoices({required this.invoices});
@@ -471,7 +473,7 @@ class _RecentInvoices extends StatelessWidget {
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () {},
+                  onPressed: () => context.go('/invoices'), // ← wired
                   style: TextButton.styleFrom(
                     minimumSize: Size.zero,
                     padding: EdgeInsets.symmetric(horizontal: 1.w),
@@ -504,98 +506,139 @@ class _RecentInvoices extends StatelessWidget {
               ),
             )
           else
-            Table(
-              columnWidths: const {
-                0: FlexColumnWidth(2.5),
-                1: FlexColumnWidth(2),
-                2: FlexColumnWidth(1.2),
-                3: FlexColumnWidth(1.5),
-                4: FixedColumnWidth(80),
-              },
-              children: [
-                TableRow(
-                  decoration: const BoxDecoration(color: D.bgCream),
-                  children: ['Invoice', 'Customer', 'FBR', 'Total', 'Time']
-                      .map(
-                        (h) => Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 1.8.w,
-                            vertical: 1.2.h,
+            LayoutBuilder(
+              builder: (context, c) {
+                // Below ~520px we hide Customer to give Total/Time room.
+                final showCustomer = c.maxWidth > 520;
+                // Column flexes adapt to whether Customer is shown.
+                final cols = <int, TableColumnWidth>{
+                  0: const FlexColumnWidth(2.4), // Invoice
+                  if (showCustomer) 1: const FlexColumnWidth(2), // Customer
+                  (showCustomer ? 2 : 1): const FlexColumnWidth(1.4), // FBR
+                  (showCustomer ? 3 : 2): const FlexColumnWidth(1.6), // Total
+                  (showCustomer ? 4 : 3): const FlexColumnWidth(1.4), // Time
+                };
+
+                final headers = <String>[
+                  'Invoice',
+                  if (showCustomer) 'Customer',
+                  'FBR',
+                  'Total',
+                  'Time',
+                ];
+
+                return Table(
+                  columnWidths: cols,
+                  defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                  children: [
+                    TableRow(
+                      decoration: const BoxDecoration(color: D.bgCream),
+                      children: [
+                        for (int i = 0; i < headers.length; i++)
+                          Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 1.4.w,
+                              vertical: 1.2.h,
+                            ),
+                            child: Text(
+                              headers[i].toUpperCase(),
+                              // Total & Time headers right-aligned to match cells
+                              textAlign:
+                                  (headers[i] == 'Total' ||
+                                      headers[i] == 'Time')
+                                  ? TextAlign.right
+                                  : TextAlign.left,
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 9.5.sp,
+                                fontWeight: FontWeight.w700,
+                                color: D.gold600,
+                                letterSpacing: 0.12,
+                              ),
+                            ),
                           ),
-                          child: Text(
-                            h.toUpperCase(),
+                      ],
+                    ),
+                    ...invoices.map((inv) {
+                      final cells = <Widget>[
+                        _cell(
+                          Text(
+                            inv['number'] as String? ?? '',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontFamily: 'Inter',
-                              fontSize: 10.sp,
-                              fontWeight: FontWeight.w700,
-                              color: D.gold600,
-                              letterSpacing: 0.14,
+                              fontFamily: 'JetBrains Mono',
+                              fontSize: 11.sp,
+                              color: D.fgSecondary,
                             ),
                           ),
                         ),
-                      )
-                      .toList(),
-                ),
-                ...invoices.map(
-                  (inv) => TableRow(
-                    children: [
-                      _TCell(
-                        child: Text(
-                          inv['number'] as String? ?? '',
-                          style: TextStyle(
-                            fontFamily: 'JetBrains Mono',
-                            fontSize: 11.5.sp,
-                            color: D.fgSecondary,
+                        if (showCustomer)
+                          _cell(
+                            Text(
+                              inv['customer'] as String? ?? 'Walk-in',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 12.sp,
+                                color: D.fgPrimary,
+                              ),
+                            ),
+                          ),
+                        _cell(
+                          StatusBadge.fbr(
+                            inv['fbrStatus'] as String? ?? 'pending',
                           ),
                         ),
-                      ),
-                      _TCell(
-                        child: Text(
-                          'Walk-in',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 13.sp,
-                            color: D.fgPrimary,
+                        _cell(
+                          Text(
+                            'Rs. ${Fmt.pkrShort((inv['amount'] as num?)?.toDouble() ?? 0.0)}',
+                            textAlign: TextAlign.right,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: 'JetBrains Mono',
+                              fontSize: 12.sp,
+                              fontWeight: FontWeight.w600,
+                              color: D.fgPrimary,
+                            ),
                           ),
+                          align: Alignment.centerRight,
                         ),
-                      ),
-                      _TCell(
-                        child: StatusBadge.fbr(
-                          inv['fbrStatus'] as String? ?? 'pending',
-                        ),
-                      ),
-                      _TCell(
-                        child: Text(
-                          'Rs. ${Fmt.pkrShort((inv['amount'] as num?)?.toDouble() ?? 0.0)}',
-                          style: TextStyle(
-                            fontFamily: 'JetBrains Mono',
-                            fontSize: 13.sp,
-                            fontWeight: FontWeight.w600,
-                            color: D.fgPrimary,
+                        _cell(
+                          Text(
+                            Fmt.timeOnly(
+                              inv['date'] as DateTime? ?? DateTime.now(),
+                            ),
+                            textAlign: TextAlign.right,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontFamily: 'JetBrains Mono',
+                              fontSize: 11.sp,
+                              color: D.fgSecondary,
+                            ),
                           ),
+                          align: Alignment.centerRight,
                         ),
-                      ),
-                      _TCell(
-                        child: Text(
-                          Fmt.timeOnly(
-                            inv['date'] as DateTime? ?? DateTime.now(),
-                          ),
-                          style: TextStyle(
-                            fontFamily: 'JetBrains Mono',
-                            fontSize: 13.sp,
-                            color: D.fgSecondary,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+                      ];
+                      return TableRow(children: cells);
+                    }),
+                  ],
+                );
+              },
             ),
         ],
       ),
     );
   }
+
+  Widget _cell(Widget child, {Alignment align = Alignment.centerLeft}) =>
+      Padding(
+        padding: EdgeInsets.symmetric(horizontal: 1.4.w, vertical: 1.3.h),
+        child: Align(alignment: align, child: child),
+      );
 }
 
 class _TCell extends StatelessWidget {
